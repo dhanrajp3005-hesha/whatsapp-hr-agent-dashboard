@@ -1,271 +1,266 @@
-# WhatsApp HR Agent - Multi-User Dashboard
+<div align="center">
 
-A multi-tenant web dashboard on top of the original WhatsApp HR Agent
-automation. Each user signs up, connects their own WhatsApp Web session,
-configures their own SMTP credentials and resume, and picks which
-community/group to scan - all backed by Supabase (Postgres + Auth +
-Storage) instead of local files.
+# 📱 WhatsApp HR Agent — Multi-User Dashboard
 
-This is a from-scratch rebuild of the original single-user, file-based
-project (`output/jobs.xlsx`, `checkpoint.json`, hardcoded `config.py`
-values) into a proper multi-user product. It lives in its own repo
-folder, independent of the original local install.
+### A multi-tenant SaaS dashboard that automates job-hunting on WhatsApp
 
----
+Scans WhatsApp placement communities for job posts, extracts recruiter emails,
+and sends your resume automatically — with each user bringing their own
+WhatsApp session, SMTP credentials, and resume through a self-serve
+onboarding flow.
 
-## Table of contents
+![Python](https://img.shields.io/badge/Python-3.12-blue?style=for-the-badge&logo=python)
+![FastAPI](https://img.shields.io/badge/FastAPI-Web_Framework-009688?style=for-the-badge&logo=fastapi)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres_%2B_Auth-3ECF8E?style=for-the-badge&logo=supabase)
+![Playwright](https://img.shields.io/badge/Playwright-Browser_Automation-2EAD33?style=for-the-badge&logo=playwright)
+![HTMX](https://img.shields.io/badge/HTMX-Frontend-3D72D7?style=for-the-badge)
 
-- [Architecture](#architecture)
-- [Why two deployment targets](#why-two-deployment-targets)
-- [Folder structure](#folder-structure)
-- [Setup](#setup)
-- [Running locally](#running-locally)
-- [Deployment](#deployment)
-- [Security notes](#security-notes)
-- [Known limitations / open items](#known-limitations--open-items)
+</div>
 
 ---
+
+## What this is
+
+This started as a personal script that scanned one WhatsApp group and
+emailed a resume to any HR contact it found. This repo turns that into
+a **proper multi-user product**: anyone can sign up, connect their own
+WhatsApp account, and run the same automation for themselves — fully
+isolated from every other user's data.
+
+It's a good example of taking a working single-user script and
+re-architecting it for multiple tenants under real constraints: no
+shared file state, encrypted secrets, database-enforced data isolation,
+and a browser-automation workload that can't run on typical serverless
+hosting.
+
+## Features
+
+- 🔐 **Email/password auth** via Supabase Auth, session-cookie based
+- 🧙 **Guided onboarding** — SMTP setup → WhatsApp QR login → pick a
+  community/group to scan
+- 📲 **Live QR code login** for WhatsApp Web, streamed to the browser
+  via polling — no shared/shell access needed
+- 📊 **Dashboard** — job counts, connection status, a filterable jobs
+  table, activity feed, and a manual "Scan now" button
+- ✉️ **Customizable email content** — per-user subject line and body,
+  falling back to a sensible default
+- 📥 **One-click Excel export** of your jobs table
+- 🛡️ **Full multi-tenant data isolation** via Postgres Row-Level
+  Security — not just an app-level `WHERE user_id = ...` filter
+- 🔒 **Encrypted credentials at rest** — SMTP passwords are
+  Fernet-encrypted, decrypted only in memory, right before use
 
 ## Architecture
+
+The interesting engineering problem here: **Vercel's serverless
+functions can't keep a logged-in Playwright/Chromium session alive**
+(no persistent disk, no long-running processes). But WhatsApp Web
+automation fundamentally needs exactly that — a browser profile that
+stays logged in indefinitely.
+
+The fix is a **two-process architecture that only communicates through
+the database**:
 
 ```
                     ┌─────────────────────────┐
                     │   Browser (any user)    │
-                    │  login/signup, settings,│
+                    │  login, settings,       │
                     │  dashboard, onboarding   │
                     └────────────┬────────────┘
                                  │ HTTPS
                                  ▼
                     ┌─────────────────────────┐
-                    │   FastAPI dashboard      │  <- deploys to Vercel
-                    │   app/api.py + templates │     (stateless, no disk,
-                    │   (Jinja2 + HTMX)         │      no Playwright)
+                    │   FastAPI dashboard      │  ← deploys to Vercel
+                    │   (Jinja2 + HTMX)        │    (stateless, no disk,
+                    │                          │     no Playwright)
                     └────────────┬────────────┘
                                  │ reads/writes
                                  ▼
                     ┌─────────────────────────┐
                     │        Supabase          │
                     │  Postgres (RLS) + Auth   │
-                    │  + Storage (resumes)      │
-                    │  worker_jobs queue table  │
+                    │  + Storage (resumes)     │
+                    │  worker_jobs queue table │
                     └────────────┬────────────┘
                                  │ polls worker_jobs
                                  ▼
                     ┌─────────────────────────┐
-                    │   worker/run_worker.py   │  <- always-on host
-                    │   app/scanner.py         │     (local machine, VPS,
-                    │   app/whatsapp_session.py│      Railway/Render/Fly/
-                    │   Playwright + per-user  │      a Docker container)
-                    │   browser_data/{user_id} │
+                    │   Always-on worker       │  ← local machine, VPS,
+                    │   Playwright + per-user  │    or small container
+                    │   browser_data/{user_id} │    host
                     └─────────────────────────┘
 ```
 
-The dashboard and the worker never talk to each other directly - they
-only ever read/write the same Supabase project. The dashboard inserts
-rows into `worker_jobs` (`scan`, `whatsapp_connect`,
-`whatsapp_disconnect`) and polls `user_settings` /
-`whatsapp_qr_image` for status; the worker polls `worker_jobs`, claims
-one at a time per user, and updates the same tables as it progresses.
+The dashboard never calls the worker directly (and vice versa). The
+dashboard inserts rows into a `worker_jobs` queue table (`scan`,
+`whatsapp_connect`, `whatsapp_disconnect`) and polls plain database
+columns for status; the worker polls that same queue, claims one job
+at a time **per user** (so a user's scan and their WhatsApp login can
+never run concurrently), and writes results back to the same tables.
+Neither process needs to know the other exists or is reachable — they
+just need to agree on a schema.
 
-## Why two deployment targets
+If you'd rather not split deployment at all, that's fine too — running
+`uvicorn app.api:app` and `python -m worker.run_worker` side by side on
+one machine works with zero code changes, since both just talk to
+Supabase.
 
-Vercel's Python functions are stateless and short-lived - they cannot
-keep a logged-in Playwright/Chromium browser profile alive between
-requests, and `browser_data/{user_id}/` needs to persist indefinitely
-between scans. So:
+## Tech stack
 
-- **Vercel**: `api/index.py` -> `app.api:app`. Login/signup, onboarding
-  forms, settings, jobs table, summary cards, activity feed, Excel
-  export. None of these routes import `app.scanner` or
-  `app.whatsapp_session`, so no Playwright/Chromium ever needs to run
-  in this process.
-- **Not Vercel**: `worker/run_worker.py`. Needs a persistent disk and,
-  unless `WHATSAPP_HEADLESS=true` (the default), an X display. Run it
-  on your local machine, a small always-on VPS/container
-  (Railway/Render/Fly.io/a Docker host), or alongside the dashboard on
-  a single always-on box if you'd rather not split deployment at all -
-  the code doesn't care, since both halves only ever touch Supabase.
-
-If you'd prefer to skip Vercel entirely and just run the dashboard +
-worker together on one always-on host, that works with zero code
-changes - just run `uvicorn app.api:app` and
-`python -m worker.run_worker` as two processes on the same box.
-
-## Folder structure
-
-```
-whatsapp-hr-agent-dashboard/
-├── app/
-│   ├── api.py                # FastAPI app - all HTTP routes (deployed to Vercel)
-│   ├── auth.py                # JWT verification + session cookie handling
-│   ├── config.py               # Global config only (Supabase, encryption key, defaults)
-│   ├── crypto.py                # Fernet encrypt/decrypt for SMTP passwords
-│   ├── db.py                     # Supabase client wrapper (service role + anon)
-│   ├── repository.py              # All Supabase table reads/writes
-│   ├── models.py                    # Pydantic request models
-│   ├── mailer.py                     # Per-user SMTP sending (DB-backed)
-│   ├── excel.py                       # On-demand jobs export to .xlsx
-│   ├── scanner.py                      # Per-user WhatsApp scan (worker-only)
-│   ├── whatsapp_session.py              # QR login / disconnect (worker-only)
-│   ├── search.py, reader.py, ...          # Playwright helpers (worker-only)
-│   └── parser.py                           # Email extraction (unchanged)
-├── worker/
-│   └── run_worker.py           # Always-on poller: claims worker_jobs, runs them
-├── api/
-│   └── index.py               # Vercel entrypoint, re-exports app.api:app
-├── templates/                # Jinja2 + HTMX pages and partials
-├── supabase/migrations/      # SQL: tables, RLS policies, storage bucket
-├── vercel.json
-└── requirements.txt
-```
-
-`browser_data/{user_id}/`, `logs/`, and any local `.env` are created at
-runtime and are gitignored - see [Security notes](#security-notes).
+| Layer | Choice | Why |
+|---|---|---|
+| Backend | FastAPI | Async-friendly, typed, minimal boilerplate |
+| Frontend | Jinja2 + HTMX | Server-rendered, no JS build step, still feels dynamic |
+| Database | Supabase (Postgres) | Row-Level Security gives real multi-tenant isolation for free |
+| Auth | Supabase Auth | Email/password + JWT sessions without rolling my own |
+| Storage | Supabase Storage | Private per-user resume PDFs |
+| Browser automation | Playwright | Headless Chromium driving WhatsApp Web |
+| Secrets | `cryptography` (Fernet) | Symmetric encryption for stored SMTP passwords |
+| Sessions | `itsdangerous` | Signed session cookies |
+| Worker coordination | Postgres table as a queue | Simplest thing that works across two independent processes |
 
 ## Setup
 
-### 1. Supabase project
+### 1. Create a Supabase project
 
-1. Create a project at [supabase.com](https://supabase.com).
-2. Run the migrations in `supabase/migrations/` against it, in order
-   (via the SQL editor, or `supabase db push` if you use the Supabase
-   CLI locally).
-3. From **Project Settings -> API**, copy:
-   - Project URL -> `SUPABASE_URL`
-   - `anon` `public` key -> `SUPABASE_ANON_KEY`
-   - `service_role` key -> `SUPABASE_SERVICE_ROLE_KEY` (**backend only, never in a template/JS file**)
-4. Confirm the `resumes` storage bucket was created (private) by
-   migration `0002_storage.sql`.
+1. Go to [supabase.com](https://supabase.com) and create a new project.
+2. Open **SQL Editor** → New query, and run each file in
+   [`supabase/migrations/`](supabase/migrations/) **in order**
+   (`0001_init.sql`, `0002_storage.sql`, `0003_mail_customization.sql`).
+   Each one is a single paste-and-run.
+3. From **Project Settings → API**, copy three values:
+   - **Project URL**
+   - **anon / public** key
+   - **service_role** key (keep this one secret — never goes in the browser)
 
-No JWT secret is needed: `app/auth.py` verifies access tokens by asking
-Supabase Auth (`client.auth.get_user(token)`) rather than decoding them
-locally, which works whether your project uses the legacy shared HS256
-secret or the newer asymmetric JWT signing keys - one less credential
-to track down, and one less thing to get subtly wrong.
+That's the only manual setup Supabase needs — no JWT secret to hunt
+down, since auth is verified by asking Supabase directly rather than
+decoding tokens locally.
 
-### 2. Environment
+### 2. Clone and configure
 
 ```bash
+git clone https://github.com/dhanrajp3005-hesha/whatsapp-hr-agent-dashboard.git
+cd whatsapp-hr-agent-dashboard
 cp .env.example .env
 ```
 
-Fill in the Supabase values above, plus:
+Open `.env` and fill in the three Supabase values from step 1, plus
+generate two local secrets:
 
 ```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"   # -> APP_ENCRYPTION_KEY
-python -c "import secrets; print(secrets.token_urlsafe(32))"                                  # -> SESSION_SECRET
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"   # → APP_ENCRYPTION_KEY
+python -c "import secrets; print(secrets.token_urlsafe(32))"                                 # → SESSION_SECRET
 ```
 
-### 3. Python environment
+### 3. Install dependencies
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-playwright install chromium   # only needed on the machine running the worker
+playwright install chromium     # only needed on whichever machine runs the worker
 ```
 
-## Running locally
+### 4. Run it
 
-Run both processes (they only share state via Supabase, not memory):
+Two processes, in two terminals:
 
 ```bash
-# Terminal 1 - dashboard
+# Terminal 1 — the dashboard
 uvicorn app.api:app --reload --port 8001
 
-# Terminal 2 - worker (needs Playwright + disk; set WHATSAPP_HEADLESS=false
-# for your very first QR scan if you want to watch it happen)
+# Terminal 2 — the worker (does the actual WhatsApp/Playwright work)
 python -m worker.run_worker
 ```
 
-Visit `http://localhost:8001`, sign up, and follow the onboarding
-wizard: SMTP + resume -> WhatsApp QR connect -> pick a community.
+Open **http://localhost:8001**, sign up, and follow the onboarding
+wizard:
 
-Port 8001 is used deliberately (not 8000) so this can run side by side
-with an existing single-user instance of the original project during
-testing.
+1. **Email setup** — SMTP host/port/username/app-password + upload your resume PDF
+2. **WhatsApp** — click *Start connection*, scan the QR code with WhatsApp
+   (Linked Devices → Link a device)
+3. **Community** — pick which group/community to scan from your chat list
+
+Then hit **Scan now** on the dashboard.
 
 ## Deployment
 
-**Dashboard (Vercel):**
+**Dashboard → Vercel:**
 
 ```bash
 vercel --prod
 ```
 
-Set the same env vars from `.env` in the Vercel project settings
-(**except** anything Playwright/worker-specific - the dashboard never
-needs `WHATSAPP_HEADLESS` etc.). Point your Vercel domain at this
-project as usual.
+Set the same Supabase env vars in the Vercel project settings. `vercel.json`
+routes everything through `api/index.py`, which only imports the parts of
+the app that never touch Playwright.
 
-**Worker (always-on host):**
+**Worker → anywhere with a persistent disk:**
 
-Run `python -m worker.run_worker` under a process supervisor (systemd,
-supervisord, `pm2`, or a Docker container with a restart policy) on
-whichever host you choose - a personal machine, a small VPS, or a
-platform like Railway/Render/Fly.io. It needs:
-
-- The same `.env` values as the dashboard.
-- A persistent volume/disk for `browser_data/`.
-- `playwright install chromium` run once during image build/setup.
-
-Only one worker process should run at a time (see
-[Known limitations](#known-limitations--open-items)).
+Your own machine, a small VPS, or a container on Railway/Render/Fly.io —
+run `python -m worker.run_worker` under a process supervisor (systemd,
+`pm2`, or a restart-always Docker container). It needs the same `.env`
+and a persistent volume for `browser_data/`.
 
 ## Security notes
 
-- SMTP passwords are Fernet-encrypted at rest (`app/crypto.py`) and
-  only ever decrypted in-memory, right before an SMTP connection, in
-  `app/mailer.py`. `APP_ENCRYPTION_KEY` lives only in server env vars.
-- The Supabase **service role key** is used only in `app/db.py`
-  (backend). Templates only ever embed the **anon** key, which is safe
-  to expose (it's subject to Row Level Security).
-- Every table has RLS enabled with a `auth.uid() = user_id` policy -
-  the service-role client bypasses RLS by design, so `app/repository.py`
-  still scopes every query to an explicit `user_id` as defense in depth.
-- Resume uploads are checked for a real PDF magic byte (`%PDF-`) before
-  being stored, not just the file extension.
-- `/api/scan` is rate-limited: one active scan per user
-  (`worker_jobs` status check) plus a minimum interval between manual
-  triggers (`MIN_SCAN_INTERVAL_SECONDS`, default 300s).
-- `.env`, `browser_data/`, `output/`, `state/`, and `checkpoint.json`
-  are gitignored. The previous repo had `output/jobs.xlsx`,
-  `state/state.json`, and `checkpoint.json` committed to git - those
-  were removed from tracking as part of this rebuild (see below).
+- SMTP passwords: Fernet-encrypted at rest, decrypted only in memory
+  immediately before opening an SMTP connection.
+- Service-role key: used only server-side (`app/db.py`); templates only
+  ever embed the public anon key.
+- Every table has Row-Level Security enabled (`auth.uid() = user_id`),
+  in addition to explicit `user_id` filters in application code —
+  defense in depth, not reliance on one layer.
+- Resume uploads are validated by magic bytes (`%PDF-`), not just file
+  extension.
+- Manual scans are rate-limited: one active scan per user, plus a
+  minimum interval between triggers.
 
-### About `n8n_data/`
+## Known limitations
 
-`n8n_data/` (an n8n automation runtime directory) was carried over from
-the original repo but is **not used by any code in this project** - it
-looks like a leftover experiment (a single inactive workflow,
-`manualTrigger -> httpRequest`, calling the old `/scan` endpoint). It's
-left in place rather than deleted, but flagged here because
-`n8n_data/config` contains a plaintext n8n encryption key and
-`n8n_data/database.sqlite` has `credentials_entity`/`user` tables - both
-committed to git in the original repo. Decide whether to keep, migrate,
-or purge this directory (and scrub it from git history if it's ever
-pushed anywhere public) before this repo goes anywhere public.
+Being upfront about tradeoffs made under time constraints:
 
-## Known limitations / open items
+- **Single worker instance assumed.** The job queue uses an optimistic
+  compare-and-swap rather than a row-level database lock, which is
+  correct for one worker process. Scaling to multiple workers would
+  need a real `SELECT ... FOR UPDATE`.
+- **WhatsApp Web's DOM is a moving target.** Selectors for the QR
+  code, chat list, and community search are all tied to WhatsApp's
+  current markup and will need updating if/when WhatsApp ships a UI
+  change. During development this actually broke twice — a headless
+  browser fingerprint (`HeadlessChrome` in the user-agent) got blocked
+  outright, and a "What's new" announcement modal silently intercepted
+  every click — both fixed, both documented in the commit history as a
+  reminder of where to look first if scanning stops working.
+- **No automated test suite yet.** The app was verified by running it
+  end-to-end against a real Supabase project and a real WhatsApp
+  account (signup → onboarding → QR login → scan → email sent), not by
+  unit tests.
 
-- **Single worker instance assumed.** `claim_next_worker_job()` uses an
-  optimistic compare-and-swap (`update ... where status='pending'`)
-  rather than a database-level lock, which is safe with one worker
-  process. Running multiple worker instances concurrently would need a
-  real `SELECT ... FOR UPDATE` (i.e., a direct Postgres connection
-  instead of the PostgREST-based supabase-py client).
-- **WhatsApp Web selectors are inherently fragile.** Both
-  `app/search.py` (community search/discovery) and the QR/chat-list
-  detection in `app/whatsapp_session.py` depend on WhatsApp Web's
-  current DOM - as in the original project, these are the first thing
-  to check if scanning or connecting stops working after a WhatsApp
-  Web UI update.
-- **No end-to-end test against a real Supabase project or real
-  WhatsApp session was possible while building this** (no live
-  credentials available in the build environment). Every module was
-  import-checked and the FastAPI app was smoke-tested locally (routing,
-  auth/JWT handling, template rendering, redirects) with a dummy
-  Supabase project - see the commit history for what that covered.
-  Before relying on this, run through Setup above against a real
-  Supabase project and confirm signup -> onboarding -> scan -> email
-  end-to-end.
+## Project structure
+
+```
+app/
+├── api.py                 # All HTTP routes (dashboard half — deploys to Vercel)
+├── auth.py                 # Session/JWT verification
+├── db.py, repository.py     # Supabase client + all data access
+├── crypto.py                 # Fernet encryption for SMTP passwords
+├── mailer.py                  # Per-user email sending
+├── scanner.py                  # WhatsApp scan loop (worker-only)
+├── whatsapp_session.py          # QR login / disconnect (worker-only)
+└── search.py, reader.py, ...     # Playwright DOM helpers (worker-only)
+worker/run_worker.py       # Always-on queue poller
+api/index.py                # Vercel entrypoint
+templates/                   # Jinja2 + HTMX pages
+supabase/migrations/           # SQL schema, RLS policies, storage bucket
+```
+
+## Author
+
+**Dhanraj P** — Cloud & DevOps Engineer, Chennai, India
+
+AWS · DevOps · Python · Linux · Docker · Kubernetes · Terraform ·
+Jenkins · GitHub Actions · Playwright · FastAPI
+
+[GitHub](https://github.com/dhanrajp3005-hesha)
