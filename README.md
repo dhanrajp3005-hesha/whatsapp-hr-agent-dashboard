@@ -222,17 +222,22 @@ docker compose logs -f worker
 ```
 
 Ships as a single `docker-compose.yml` service built from the repo's
-`Dockerfile` (based on `mcr.microsoft.com/playwright/python`, which bundles
-Chromium + its system deps pre-baked). Runs as that image's built-in
-non-root `pwuser` (uid/gid 1001:1001, which happens to match this host's
-own user, keeping the bind-mounted `./browser_data` writable) instead of
-root, avoiding the need for `--no-sandbox` (Chromium refuses to launch as
-root without it, and weakening the sandbox isn't worth it for a one-line
-Docker fix). `restart: unless-stopped` keeps it running across reboots;
-`shm_size: 1gb` avoids Chromium's common Docker crash from the 64MB
-default `/dev/shm`. Works the same on this machine or any other
-always-on Docker host - just copy `.env`, `browser_data/` (if migrating
-an existing connected session), and run the same command.
+`Dockerfile` - `python:3.12-slim` plus `playwright install --with-deps
+chromium` (~2GB, vs. ~2.6GB using the official `playwright/python` image,
+which bundles Firefox and WebKit too - unused dead weight here, since
+`p.chromium` is the only browser type this codebase ever launches).
+`--with-deps` asks Playwright's own installer to apt-get the exact
+system libraries Chromium needs rather than hand-maintaining a list.
+Runs as a non-root user matching the host's own uid/gid (default
+1001:1001) so the bind-mounted `./browser_data` stays writable, avoiding
+the need for `--no-sandbox` (Chromium refuses to launch as root without
+it, and weakening the sandbox isn't worth it for a one-line Docker fix).
+`restart: unless-stopped` keeps it running across reboots; `shm_size:
+1gb` avoids Chromium's common Docker crash from the 64MB default
+`/dev/shm`. Works the same on this machine or any other always-on Docker
+host - just copy `.env`, `browser_data/` (if migrating an existing
+connected session), and run the same command (pass `--build-arg
+UID=<uid> --build-arg GID=<gid>` if the host user isn't 1001:1001).
 
 ## Security notes
 
