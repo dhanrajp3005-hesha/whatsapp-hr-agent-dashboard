@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}Set up - WhatsApp HR Agent{% endblock %}
+{% block body %}
+{% include "partials/_nav.html" %}
+
+<div class="max-w-2xl mx-auto px-4 py-10">
+  <ol class="flex items-center gap-2 text-sm mb-8">
+    <li class="px-3 py-1 rounded-full {{ 'bg-emerald-600 text-white' if step == 'setup' else 'bg-gray-200 text-gray-600' }}">1. Email setup</li>
+    <li class="px-3 py-1 rounded-full {{ 'bg-emerald-600 text-white' if step == 'whatsapp' else 'bg-gray-200 text-gray-600' }}">2. WhatsApp</li>
+    <li class="px-3 py-1 rounded-full {{ 'bg-emerald-600 text-white' if step == 'community' else 'bg-gray-200 text-gray-600' }}">3. Community</li>
+  </ol>
+
+  {% if step == "setup" %}
+  <div class="bg-white border rounded-xl p-6 space-y-6">
+    <div>
+      <h2 class="font-semibold mb-3">SMTP credentials</h2>
+      <form id="smtp-form" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <input name="smtp_host" placeholder="SMTP host (e.g. smtp.gmail.com)" required class="border rounded-lg px-3 py-2 text-sm" />
+          <input name="smtp_port" type="number" placeholder="Port (e.g. 587)" required class="border rounded-lg px-3 py-2 text-sm" />
+        </div>
+        <input name="smtp_username" placeholder="SMTP username" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+        <input name="smtp_password" type="password" placeholder="App password" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+        <input name="from_email" type="email" placeholder="From email" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+        <p id="smtp-error" class="text-sm text-red-600 hidden"></p>
+        <p id="smtp-ok" class="text-sm text-emerald-700 hidden">Saved.</p>
+        <div class="flex gap-2">
+          <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
+          <button type="button" id="test-email-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Send test email</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="border-t pt-6">
+      <h2 class="font-semibold mb-3">Resume</h2>
+      <form id="resume-form" class="space-y-3">
+        <input name="resume" type="file" accept="application/pdf" required class="text-sm" />
+        <p id="resume-error" class="text-sm text-red-600 hidden"></p>
+        <p id="resume-ok" class="text-sm text-emerald-700 hidden">Uploaded.</p>
+        <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Upload PDF</button>
+      </form>
+    </div>
+
+    <button id="continue-btn" class="w-full border rounded-lg py-2 text-sm font-medium hover:bg-gray-50">
+      Continue &rarr;
+    </button>
+  </div>
+
+  <script>
+    function toJson(form) {
+      return Object.fromEntries(new FormData(form).entries());
+    }
+
+    document.getElementById("smtp-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = toJson(e.target);
+      payload.smtp_port = parseInt(payload.smtp_port, 10);
+
+      const res = await fetch("/api/settings/smtp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const errorEl = document.getElementById("smtp-error");
+      const okEl = document.getElementById("smtp-ok");
+      errorEl.classList.add("hidden");
+      okEl.classList.add("hidden");
+
+      if (res.ok) {
+        okEl.classList.remove("hidden");
+      } else {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.detail || "Could not save SMTP settings.";
+        errorEl.classList.remove("hidden");
+      }
+    });
+
+    document.getElementById("test-email-btn").addEventListener("click", async () => {
+      const payload = toJson(document.getElementById("smtp-form"));
+      payload.smtp_port = parseInt(payload.smtp_port, 10);
+
+      const res = await fetch("/api/settings/smtp/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const errorEl = document.getElementById("smtp-error");
+      errorEl.classList.add("hidden");
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.detail || "Test email failed.";
+        errorEl.classList.remove("hidden");
+      } else {
+        alert("Test email sent - check your inbox.");
+      }
+    });
+
+    document.getElementById("resume-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+
+      const res = await fetch("/api/settings/resume", { method: "POST", body: formData });
+
+      const errorEl = document.getElementById("resume-error");
+      const okEl = document.getElementById("resume-ok");
+      errorEl.classList.add("hidden");
+      okEl.classList.add("hidden");
+
+      if (res.ok) {
+        okEl.classList.remove("hidden");
+      } else {
+        const body = await res.json().catch(() => ({}));
+        errorEl.textContent = body.detail || "Upload failed.";
+        errorEl.classList.remove("hidden");
+      }
+    });
+
+    document.getElementById("continue-btn").addEventListener("click", () => {
+      window.location.reload();
+    });
+  </script>
+  {% endif %}
+
+  {% if step == "whatsapp" %}
+  <div class="bg-white border rounded-xl p-6 text-center space-y-4">
+    <h2 class="font-semibold">Connect WhatsApp</h2>
+    <p class="text-sm text-gray-500">Scan this QR code with WhatsApp on your phone (Linked Devices &rarr; Link a device).</p>
+
+    <div id="qr-wrap" class="flex justify-center">
+      <img id="qr-img" class="w-56 h-56 border rounded-lg object-contain" />
+    </div>
+
+    <p id="wa-status" class="text-sm text-gray-500">Waiting for connection...</p>
+
+    <button id="connect-btn" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">
+      Start connection
+    </button>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("wa-status");
+    const qrImg = document.getElementById("qr-img");
+    let poller = null;
+
+    async function poll() {
+      const res = await fetch("/api/whatsapp/status");
+      const body = await res.json();
+
+      if (body.status === "connected") {
+        statusEl.textContent = "Connected! Continuing...";
+        clearInterval(poller);
+        window.location.reload();
+        return;
+      }
+
+      if (body.status === "pending_qr") {
+        statusEl.textContent = "Scan the QR code above.";
+        qrImg.src = "/api/whatsapp/qr-image?ts=" + Date.now();
+      } else if (body.status === "expired") {
+        statusEl.textContent = "QR code expired. Click Start connection to retry.";
+        clearInterval(poller);
+      }
+    }
+
+    document.getElementById("connect-btn").addEventListener("click", async () => {
+      statusEl.textContent = "Starting...";
+      await fetch("/api/whatsapp/connect", { method: "POST" });
+      poller = setInterval(poll, 2000);
+      poll();
+    });
+  </script>
+  {% endif %}
+
+  {% if step == "community" %}
+  <div class="bg-white border rounded-xl p-6 space-y-4">
+    <h2 class="font-semibold">Pick a community/group to scan</h2>
+    <select id="community-select" class="w-full border rounded-lg px-3 py-2 text-sm">
+      <option value="">Loading...</option>
+    </select>
+    <p id="community-error" class="text-sm text-red-600 hidden"></p>
+    <button id="community-save" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">
+      Save and finish
+    </button>
+  </div>
+
+  <script>
+    const select = document.getElementById("community-select");
+
+    fetch("/api/whatsapp/communities").then((r) => r.json()).then((body) => {
+      select.innerHTML = "";
+      if (!body.communities.length) {
+        select.innerHTML = '<option value="">No chats found</option>';
+        return;
+      }
+      for (const name of body.communities) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      }
+    });
+
+    document.getElementById("community-save").addEventListener("click", async () => {
+      const errorEl = document.getElementById("community-error");
+      errorEl.classList.add("hidden");
+
+      const res = await fetch("/api/settings/community", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ community_name: select.value }),
+      });
+
+      if (res.ok) {
+        window.location.href = "/dashboard";
+      } else {
+        errorEl.textContent = "Could not save community.";
+        errorEl.classList.remove("hidden");
+      }
+    });
+  </script>
+  {% endif %}
+</div>
+{% endblock %}

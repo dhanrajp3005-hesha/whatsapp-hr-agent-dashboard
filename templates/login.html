@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Log in - WhatsApp HR Agent{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+{% endblock %}
+{% block body %}
+<div class="min-h-screen flex items-center justify-center px-4">
+  <div class="w-full max-w-sm bg-white border rounded-xl shadow-sm p-6">
+    <h1 class="text-xl font-semibold mb-1">Log in</h1>
+    <p class="text-sm text-gray-500 mb-6">Access your WhatsApp HR Agent dashboard.</p>
+
+    <form id="login-form" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Email</label>
+        <input type="email" id="email" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Password</label>
+        <input type="password" id="password" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+      </div>
+      <p id="error" class="text-sm text-red-600 hidden"></p>
+      <button type="submit" class="w-full bg-emerald-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-emerald-700">
+        Log in
+      </button>
+    </form>
+
+    <p class="text-sm text-gray-500 mt-4">
+      No account? <a href="/signup" class="text-emerald-600 hover:underline">Sign up</a>
+    </p>
+  </div>
+</div>
+
+<script>
+  const supabaseClient = supabase.createClient(
+    "{{ supabase_url }}",
+    "{{ supabase_anon_key }}"
+  );
+
+  const form = document.getElementById("login-form");
+  const errorEl = document.getElementById("error");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorEl.classList.add("hidden");
+
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
+    if (error || !data.session) {
+      errorEl.textContent = error ? error.message : "Login failed.";
+      errorEl.classList.remove("hidden");
+      return;
+    }
+
+    const res = await fetch("/auth/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      }),
+    });
+
+    if (res.ok) {
+      window.location.href = "/";
+    } else {
+      errorEl.textContent = "Could not start session. Please try again.";
+      errorEl.classList.remove("hidden");
+    }
+  });
+</script>
+{% endblock %}

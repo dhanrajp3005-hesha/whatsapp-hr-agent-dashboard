@@ -1,0 +1,47 @@
+<table class="w-full text-sm">
+  <thead>
+    <tr class="text-left text-gray-500 border-b">
+      <th class="py-2">Date</th>
+      <th class="py-2">Company</th>
+      <th class="py-2">Email</th>
+      <th class="py-2">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for job in jobs %}
+    <tr class="border-b last:border-0">
+      <td class="py-2 whitespace-nowrap">{{ job.created_at[:10] if job.created_at else "" }}</td>
+      <td class="py-2">{{ job.company or "-" }}</td>
+      <td class="py-2">{{ job.email }}</td>
+      <td class="py-2">
+        <span class="text-xs px-2 py-1 rounded-full
+          {{ 'bg-emerald-100 text-emerald-700' if job.mail_status == 'Sent'
+             else 'bg-red-100 text-red-700' if job.mail_status == 'Failed'
+             else 'bg-amber-100 text-amber-700' }}">
+          {{ job.mail_status }}
+        </span>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="py-6 text-center text-gray-400">No jobs yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<div class="flex items-center justify-between mt-3 text-sm text-gray-500">
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  <div class="flex gap-2">
+    {% if page > 1 %}
+    <button class="border rounded-lg px-3 py-1 hover:bg-gray-50"
+      hx-get="/partials/jobs-table?status={{ status_filter }}&page={{ page - 1 }}"
+      hx-target="#jobs-table" hx-swap="innerHTML">Previous</button>
+    {% endif %}
+    {% if page < total_pages %}
+    <button class="border rounded-lg px-3 py-1 hover:bg-gray-50"
+      hx-get="/partials/jobs-table?status={{ status_filter }}&page={{ page + 1 }}"
+      hx-target="#jobs-table" hx-swap="innerHTML">Next</button>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

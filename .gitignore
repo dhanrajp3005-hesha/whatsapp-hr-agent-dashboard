@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+
+# Playwright Cache
+.playwright/
+
+# VS Code
+.vscode/
+
+# Logs
+logs/*.log
+
+# Browser Data (per-user WhatsApp sessions live here, on the worker host only)
+browser_data/
+
+# Local per-user data - now lives in Supabase, never committed
+output/
+state/
+checkpoint.json
+
+# Python Env
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Excel Temporary
+~$*.xlsx
+
+# Pytest
+.pytest_cache/
+
+# Build
+dist/
+build/
+
+# IDE
+.idea/
+
+*.zip
+n8n_data/

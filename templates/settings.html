@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Settings - WhatsApp HR Agent{% endblock %}
+{% block body %}
+{% include "partials/_nav.html" %}
+
+<div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
+  <div class="bg-white border rounded-xl p-6">
+    <h2 class="font-semibold mb-3">SMTP credentials</h2>
+    <form id="smtp-form" class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <input name="smtp_host" placeholder="SMTP host" value="{{ settings.smtp_host or '' }}" required class="border rounded-lg px-3 py-2 text-sm" />
+        <input name="smtp_port" type="number" placeholder="Port" value="{{ settings.smtp_port or '' }}" required class="border rounded-lg px-3 py-2 text-sm" />
+      </div>
+      <input name="smtp_username" placeholder="SMTP username" value="{{ settings.smtp_username or '' }}" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+      <input name="smtp_password" type="password" placeholder="App password (re-enter to change)" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+      <input name="from_email" type="email" placeholder="From email" value="{{ settings.from_email or '' }}" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+      <p id="smtp-error" class="text-sm text-red-600 hidden"></p>
+      <p id="smtp-ok" class="text-sm text-emerald-700 hidden">Saved.</p>
+      <div class="flex gap-2">
+        <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
+        <button type="button" id="test-email-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Send test email</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="bg-white border rounded-xl p-6">
+    <h2 class="font-semibold mb-3">Resume</h2>
+    <p class="text-sm text-gray-500 mb-2">
+      {{ "A resume is on file." if settings.resume_storage_path else "No resume uploaded yet." }}
+    </p>
+    <form id="resume-form" class="space-y-3">
+      <input name="resume" type="file" accept="application/pdf" required class="text-sm" />
+      <p id="resume-error" class="text-sm text-red-600 hidden"></p>
+      <p id="resume-ok" class="text-sm text-emerald-700 hidden">Uploaded.</p>
+      <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Upload PDF</button>
+    </form>
+  </div>
+
+  <div class="bg-white border rounded-xl p-6 space-y-3">
+    <h2 class="font-semibold">Email content</h2>
+    <p class="text-sm text-gray-500">
+      Customize the subject and message sent with your resume. Leave blank to use the default cover message.
+    </p>
+    <form id="mail-content-form" class="space-y-3">
+      <div>
+        <label class="block text-sm font-medium mb-1">Subject</label>
+        <input name="subject" placeholder="Application for AWS DevOps Engineer | 5 Years Experience"
+          value="{{ settings.mail_subject or '' }}" class="w-full border rounded-lg px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Body</label>
+        <textarea name="body" rows="8" placeholder="Leave blank to use the default message..."
+          class="w-full border rounded-lg px-3 py-2 text-sm font-mono">{{ settings.mail_body or '' }}</textarea>
+        <p class="text-xs text-gray-400 mt-1">Plain text, or paste HTML for formatting - either works.</p>
+      </div>
+      <p id="mail-content-error" class="text-sm text-red-600 hidden"></p>
+      <p id="mail-content-ok" class="text-sm text-emerald-700 hidden">Saved.</p>
+      <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
+    </form>
+  </div>
+
+  <div class="bg-white border rounded-xl p-6 space-y-3">
+    <h2 class="font-semibold">WhatsApp connection</h2>
+    <div id="wa-status" hx-get="/partials/whatsapp-status" hx-trigger="load, every 10s" hx-swap="innerHTML"></div>
+    <div class="flex gap-2">
+      <button id="reconnect-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Reconnect</button>
+      <button id="disconnect-btn" class="border rounded-lg px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Disconnect</button>
+    </div>
+    <p id="wa-msg" class="text-sm text-gray-500"></p>
+  </div>
+
+  <div class="bg-white border rounded-xl p-6 space-y-3">
+    <h2 class="font-semibold">Community / group</h2>
+    <select id="community-select" class="w-full border rounded-lg px-3 py-2 text-sm">
+      <option value="">Loading...</option>
+    </select>
+    <button id="community-save" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
+  </div>
+</div>
+
+<script>
+  function toJson(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
+
+  document.getElementById("smtp-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = toJson(e.target);
+    payload.smtp_port = parseInt(payload.smtp_port, 10);
+
+    const res = await fetch("/api/settings/smtp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const errorEl = document.getElementById("smtp-error");
+    const okEl = document.getElementById("smtp-ok");
+    errorEl.classList.add("hidden");
+    okEl.classList.add("hidden");
+
+    if (res.ok) {
+      okEl.classList.remove("hidden");
+    } else {
+      const body = await res.json().catch(() => ({}));
+      errorEl.textContent = body.detail || "Could not save SMTP settings.";
+      errorEl.classList.remove("hidden");
+    }
+  });
+
+  document.getElementById("test-email-btn").addEventListener("click", async () => {
+    const payload = toJson(document.getElementById("smtp-form"));
+    payload.smtp_port = parseInt(payload.smtp_port, 10);
+
+    const res = await fetch("/api/settings/smtp/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      alert("Test email sent - check your inbox.");
+    } else {
+      const body = await res.json().catch(() => ({}));
+      alert(body.detail || "Test email failed.");
+    }
+  });
+
+  document.getElementById("resume-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const res = await fetch("/api/settings/resume", { method: "POST", body: formData });
+
+    const errorEl = document.getElementById("resume-error");
+    const okEl = document.getElementById("resume-ok");
+    errorEl.classList.add("hidden");
+    okEl.classList.add("hidden");
+
+    if (res.ok) {
+      okEl.classList.remove("hidden");
+    } else {
+      const body = await res.json().catch(() => ({}));
+      errorEl.textContent = body.detail || "Upload failed.";
+      errorEl.classList.remove("hidden");
+    }
+  });
+
+  document.getElementById("mail-content-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = toJson(e.target);
+
+    const res = await fetch("/api/settings/mail-content", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const errorEl = document.getElementById("mail-content-error");
+    const okEl = document.getElementById("mail-content-ok");
+    errorEl.classList.add("hidden");
+    okEl.classList.add("hidden");
+
+    if (res.ok) {
+      okEl.classList.remove("hidden");
+    } else {
+      const body = await res.json().catch(() => ({}));
+      errorEl.textContent = body.detail || "Could not save.";
+      errorEl.classList.remove("hidden");
+    }
+  });
+
+  document.getElementById("reconnect-btn").addEventListener("click", async () => {
+    const msg = document.getElementById("wa-msg");
+    const res = await fetch("/api/whatsapp/connect", { method: "POST" });
+    msg.textContent = res.ok
+      ? "Connection started - go to Settings again shortly to scan the QR, or check /onboarding."
+      : "Could not start connection.";
+  });
+
+  document.getElementById("disconnect-btn").addEventListener("click", async () => {
+    const msg = document.getElementById("wa-msg");
+    const res = await fetch("/api/whatsapp/disconnect", { method: "POST" });
+    msg.textContent = res.ok ? "Disconnecting..." : "Could not disconnect.";
+  });
+
+  const communitySelect = document.getElementById("community-select");
+
+  fetch("/api/whatsapp/communities").then((r) => r.json()).then((body) => {
+    communitySelect.innerHTML = "";
+    if (!body.communities.length) {
+      communitySelect.innerHTML = '<option value="">No chats found</option>';
+      return;
+    }
+    for (const name of body.communities) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      if (name === "{{ settings.selected_community_name or '' }}") opt.selected = true;
+      communitySelect.appendChild(opt);
+    }
+  });
+
+  document.getElementById("community-save").addEventListener("click", async () => {
+    const res = await fetch("/api/settings/community", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ community_name: communitySelect.value }),
+    });
+    alert(res.ok ? "Saved." : "Could not save community.");
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,370 @@
+import base64
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+
+from app import repository
+from app.auth import CurrentUser, clear_session_cookie, create_session_cookie, get_current_user, get_current_user_optional
+from app.config import BASE_DIR, MIN_SCAN_INTERVAL_SECONDS, RESUME_BUCKET, SUPABASE_ANON_KEY, SUPABASE_URL
+from app.db import get_service_client
+from app.excel import export_jobs_xlsx
+from app.mailer import send_test_email
+from app.models import CommunitySelectIn, MailContentIn, SessionIn, SmtpSettingsIn
+
+app = FastAPI(title="WhatsApp HR Agent Dashboard")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def _onboarding_step(settings: Optional[dict]) -> str:
+    settings = settings or {}
+
+    if not settings.get("smtp_password_encrypted") or not settings.get("resume_storage_path"):
+        return "setup"
+    if settings.get("whatsapp_session_status") != "connected":
+        return "whatsapp"
+    if not settings.get("selected_community_name"):
+        return "community"
+    return "done"
+
+
+def _dashboard_summary(user_id: str) -> dict:
+    settings = repository.get_user_settings(user_id) or {}
+    counts = repository.job_counts(user_id)
+
+    return {
+        **counts,
+        "whatsapp_status": settings.get("whatsapp_session_status", "disconnected"),
+        "smtp_configured": bool(settings.get("smtp_password_encrypted")),
+        "selected_community": settings.get("selected_community_name"),
+    }
+
+
+# ==========================================================
+# Health
+# ==========================================================
+
+@app.get("/health")
+def health():
+    return {"status": "running"}
+
+
+@app.get("/")
+def index(request: Request):
+    user = get_current_user_optional(request)
+    if not user:
+        return RedirectResponse("/login", status.HTTP_303_SEE_OTHER)
+
+    step = _onboarding_step(repository.get_user_settings(user.id))
+    destination = "/dashboard" if step == "done" else "/onboarding"
+    return RedirectResponse(destination, status.HTTP_303_SEE_OTHER)
+
+
+# ==========================================================
+# Auth pages + session bridge
+# ==========================================================
+# Supabase Auth itself runs client-side via supabase-js with the public
+# anon key (embedded below) - the backend never sees a password. After
+# supabase-js signs a user in, the page POSTs the resulting tokens here
+# so we can set an httponly session cookie; the anon/service-role split
+# described in Section 4 is preserved because the service role key never
+# appears in any template.
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    if get_current_user_optional(request):
+        return RedirectResponse("/", status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        request, "login.html", {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY}
+    )
+
+
+@app.get("/signup", response_class=HTMLResponse)
+def signup_page(request: Request):
+    if get_current_user_optional(request):
+        return RedirectResponse("/", status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        request, "signup.html", {"supabase_url": SUPABASE_URL, "supabase_anon_key": SUPABASE_ANON_KEY}
+    )
+
+
+@app.post("/auth/session")
+def create_session(payload: SessionIn, response: Response):
+    create_session_cookie(response, payload.access_token, payload.refresh_token)
+    return {"ok": True}
+
+
+@app.post("/auth/logout")
+def logout():
+    response = RedirectResponse("/login", status.HTTP_303_SEE_OTHER)
+    clear_session_cookie(response)
+    return response
+
+
+# ==========================================================
+# Onboarding + Settings pages
+# ==========================================================
+
+@app.get("/onboarding", response_class=HTMLResponse)
+def onboarding_page(request: Request):
+    user = get_current_user_optional(request)
+    if not user:
+        return RedirectResponse("/login", status.HTTP_303_SEE_OTHER)
+
+    settings = repository.get_user_settings(user.id)
+    step = _onboarding_step(settings)
+
+    if step == "done":
+        return RedirectResponse("/dashboard", status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        request, "onboarding.html", {"step": step, "settings": settings or {}}
+    )
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page(request: Request):
+    user = get_current_user_optional(request)
+    if not user:
+        return RedirectResponse("/login", status.HTTP_303_SEE_OTHER)
+
+    step = _onboarding_step(repository.get_user_settings(user.id))
+    if step != "done":
+        return RedirectResponse("/onboarding", status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        request, "dashboard.html", {"summary": _dashboard_summary(user.id)}
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request):
+    user = get_current_user_optional(request)
+    if not user:
+        return RedirectResponse("/login", status.HTTP_303_SEE_OTHER)
+
+    settings = repository.get_user_settings(user.id) or {}
+    communities = repository.list_communities(user.id)
+    return templates.TemplateResponse(
+        request, "settings.html", {"settings": settings, "communities": communities}
+    )
+
+
+# ==========================================================
+# HTMX partials
+# ==========================================================
+
+@app.get("/partials/jobs-table", response_class=HTMLResponse)
+def jobs_table_partial(
+    request: Request,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    page: int = Query(1, ge=1),
+    user: CurrentUser = Depends(get_current_user),
+):
+    jobs, total = repository.list_jobs(user.id, status=status_filter, page=page, page_size=20)
+    total_pages = max(1, (total + 19) // 20)
+
+    return templates.TemplateResponse(
+        request,
+        "partials/jobs_table.html",
+        {"jobs": jobs, "page": page, "total_pages": total_pages, "status_filter": status_filter or ""},
+    )
+
+
+@app.get("/partials/activity-feed", response_class=HTMLResponse)
+def activity_feed_partial(request: Request, user: CurrentUser = Depends(get_current_user)):
+    activity = repository.list_activity(user.id, limit=50)
+    return templates.TemplateResponse(request, "partials/activity_feed.html", {"activity": activity})
+
+
+@app.get("/partials/summary-cards", response_class=HTMLResponse)
+def summary_cards_partial(request: Request, user: CurrentUser = Depends(get_current_user)):
+    return templates.TemplateResponse(
+        request, "partials/summary_cards.html", {"summary": _dashboard_summary(user.id)}
+    )
+
+
+@app.get("/partials/whatsapp-status", response_class=HTMLResponse)
+def whatsapp_status_partial(request: Request, user: CurrentUser = Depends(get_current_user)):
+    settings = repository.get_user_settings(user.id) or {}
+    return templates.TemplateResponse(
+        request,
+        "partials/whatsapp_status.html",
+        {"status": settings.get("whatsapp_session_status", "disconnected")},
+    )
+
+
+# ==========================================================
+# Settings API
+# ==========================================================
+
+@app.post("/api/settings/smtp")
+def save_smtp_settings(payload: SmtpSettingsIn, user: CurrentUser = Depends(get_current_user)):
+    repository.save_smtp_settings(
+        user.id,
+        smtp_host=payload.smtp_host,
+        smtp_port=payload.smtp_port,
+        smtp_username=payload.smtp_username,
+        smtp_password=payload.smtp_password,
+        from_email=payload.from_email,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/settings/smtp/test")
+def send_smtp_test(payload: SmtpSettingsIn, user: CurrentUser = Depends(get_current_user)):
+    try:
+        send_test_email(
+            user.id,
+            {
+                "smtp_host": payload.smtp_host,
+                "smtp_port": payload.smtp_port,
+                "smtp_username": payload.smtp_username,
+                "smtp_password": payload.smtp_password,
+                "from_email": payload.from_email,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Test email failed: {exc}") from exc
+
+    return {"ok": True}
+
+
+@app.post("/api/settings/resume")
+def upload_resume(resume: UploadFile = File(...), user: CurrentUser = Depends(get_current_user)):
+    content = resume.file.read()
+
+    if content[:5] != b"%PDF-":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File is not a valid PDF.")
+
+    storage_path = f"{user.id}/resume.pdf"
+
+    get_service_client().storage.from_(RESUME_BUCKET).upload(
+        storage_path,
+        content,
+        {"content-type": "application/pdf", "upsert": "true"},
+    )
+
+    repository.set_resume_path(user.id, storage_path)
+    return {"ok": True}
+
+
+@app.post("/api/settings/community")
+def select_community(payload: CommunitySelectIn, user: CurrentUser = Depends(get_current_user)):
+    repository.set_selected_community(user.id, payload.community_name)
+    return {"ok": True}
+
+
+@app.post("/api/settings/mail-content")
+def save_mail_content(payload: MailContentIn, user: CurrentUser = Depends(get_current_user)):
+    repository.save_mail_content(user.id, payload.subject, payload.body)
+    return {"ok": True}
+
+
+# ==========================================================
+# WhatsApp connection API
+# ==========================================================
+
+@app.post("/api/whatsapp/connect")
+def whatsapp_connect(user: CurrentUser = Depends(get_current_user)):
+    if repository.get_active_worker_job(user.id, "whatsapp_connect"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A connection attempt is already in progress.")
+
+    repository.create_worker_job(user.id, "whatsapp_connect")
+    return {"status": "pending_qr"}
+
+
+@app.get("/api/whatsapp/status")
+def whatsapp_status(user: CurrentUser = Depends(get_current_user)):
+    settings = repository.get_user_settings(user.id) or {}
+    return {"status": settings.get("whatsapp_session_status", "disconnected")}
+
+
+@app.get("/api/whatsapp/qr-image")
+def whatsapp_qr_image(user: CurrentUser = Depends(get_current_user)):
+    qr_b64 = repository.get_qr_image(user.id)
+    if not qr_b64:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No QR code available yet.")
+
+    return Response(content=base64.b64decode(qr_b64), media_type="image/png")
+
+
+@app.post("/api/whatsapp/disconnect")
+def whatsapp_disconnect(user: CurrentUser = Depends(get_current_user)):
+    if repository.get_active_worker_job(user.id, "whatsapp_disconnect"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A disconnect is already in progress.")
+
+    repository.create_worker_job(user.id, "whatsapp_disconnect")
+    return {"status": "disconnecting"}
+
+
+@app.get("/api/whatsapp/communities")
+def whatsapp_communities(user: CurrentUser = Depends(get_current_user)):
+    return {"communities": repository.list_communities(user.id)}
+
+
+# ==========================================================
+# Scan API
+# ==========================================================
+
+@app.post("/api/scan")
+def trigger_scan(user: CurrentUser = Depends(get_current_user)):
+    settings = repository.get_user_settings(user.id) or {}
+    if not settings.get("selected_community_name"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select a community before scanning.")
+    if settings.get("whatsapp_session_status") != "connected":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "WhatsApp is not connected.")
+
+    if repository.get_active_worker_job(user.id, "scan"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A scan is already in progress.")
+
+    last = repository.get_last_worker_job(user.id, "scan")
+    if last and last.get("requested_at"):
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(last["requested_at"])).total_seconds()
+        if elapsed < MIN_SCAN_INTERVAL_SECONDS:
+            wait_for = int(MIN_SCAN_INTERVAL_SECONDS - elapsed)
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS, f"Please wait {wait_for}s before scanning again."
+            )
+
+    repository.create_worker_job(user.id, "scan")
+    repository.log_activity(user.id, "scan_requested", settings["selected_community_name"])
+    return {"status": "queued"}
+
+
+# ==========================================================
+# Jobs / activity / summary API
+# ==========================================================
+
+@app.get("/api/jobs")
+def api_jobs(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    page: int = Query(1, ge=1),
+    user: CurrentUser = Depends(get_current_user),
+):
+    jobs, total = repository.list_jobs(user.id, status=status_filter, page=page, page_size=20)
+    return {"jobs": jobs, "total": total, "page": page}
+
+
+@app.get("/api/jobs/export")
+def api_jobs_export(user: CurrentUser = Depends(get_current_user)):
+    buffer = export_jobs_xlsx(user.id)
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=jobs.xlsx"},
+    )
+
+
+@app.get("/api/activity")
+def api_activity(user: CurrentUser = Depends(get_current_user)):
+    return {"activity": repository.list_activity(user.id, limit=50)}
+
+
+@app.get("/api/dashboard/summary")
+def api_dashboard_summary(user: CurrentUser = Depends(get_current_user)):
+    return _dashboard_summary(user.id)

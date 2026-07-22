@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - WhatsApp HR Agent{% endblock %}
+{% block body %}
+{% include "partials/_nav.html" %}
+
+<div class="max-w-5xl mx-auto px-4 py-8 space-y-8">
+  <div id="summary-cards" hx-get="/partials/summary-cards" hx-trigger="load, every 15s" hx-swap="innerHTML">
+    {% include "partials/summary_cards.html" %}
+  </div>
+
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <button id="scan-btn" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">
+        Scan now
+      </button>
+      <span id="scan-status" class="text-sm text-gray-500"></span>
+    </div>
+    <a href="/api/jobs/export" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
+      Download Excel
+    </a>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2 bg-white border rounded-xl p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold">Jobs</h2>
+        <select id="status-filter" class="border rounded-lg px-2 py-1 text-sm">
+          <option value="">All</option>
+          <option value="Pending">Pending</option>
+          <option value="Sent">Sent</option>
+          <option value="Failed">Failed</option>
+        </select>
+      </div>
+      <div id="jobs-table" hx-get="/partials/jobs-table" hx-trigger="load" hx-swap="innerHTML"></div>
+    </div>
+
+    <div class="bg-white border rounded-xl p-4">
+      <h2 class="font-semibold mb-3">Recent activity</h2>
+      <div id="activity-feed" hx-get="/partials/activity-feed" hx-trigger="load, every 15s" hx-swap="innerHTML"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById("status-filter").addEventListener("change", (e) => {
+    const jobsTable = document.getElementById("jobs-table");
+    jobsTable.setAttribute("hx-get", "/partials/jobs-table?status=" + encodeURIComponent(e.target.value));
+    htmx.process(jobsTable);
+    htmx.trigger(jobsTable, "load");
+  });
+
+  document.getElementById("scan-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("scan-btn");
+    const statusEl = document.getElementById("scan-status");
+
+    btn.disabled = true;
+    btn.textContent = "Scanning...";
+    statusEl.textContent = "";
+
+    try {
+      const res = await fetch("/api/scan", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        statusEl.textContent = "Scan queued - refresh activity feed shortly.";
+      } else {
+        statusEl.textContent = body.detail || "Could not start scan.";
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Scan now";
+    }
+  });
+</script>
+{% endblock %}

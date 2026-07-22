@@ -1,0 +1,32 @@
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+  <div class="bg-white border rounded-xl p-4">
+    <p class="text-xs text-gray-500">Total jobs</p>
+    <p class="text-2xl font-semibold">{{ summary.total }}</p>
+  </div>
+  <div class="bg-white border rounded-xl p-4">
+    <p class="text-xs text-gray-500">Sent</p>
+    <p class="text-2xl font-semibold text-emerald-600">{{ summary.sent }}</p>
+  </div>
+  <div class="bg-white border rounded-xl p-4">
+    <p class="text-xs text-gray-500">Pending</p>
+    <p class="text-2xl font-semibold text-amber-600">{{ summary.pending }}</p>
+  </div>
+  <div class="bg-white border rounded-xl p-4">
+    <p class="text-xs text-gray-500">Failed</p>
+    <p class="text-2xl font-semibold text-red-600">{{ summary.failed }}</p>
+  </div>
+</div>
+
+<div class="flex flex-wrap gap-2 mt-4">
+  <span class="text-xs px-3 py-1 rounded-full {{ 'bg-emerald-100 text-emerald-700' if summary.whatsapp_status == 'connected' else 'bg-gray-200 text-gray-600' }}">
+    WhatsApp: {{ summary.whatsapp_status }}
+  </span>
+  <span class="text-xs px-3 py-1 rounded-full {{ 'bg-emerald-100 text-emerald-700' if summary.smtp_configured else 'bg-gray-200 text-gray-600' }}">
+    SMTP: {{ "configured" if summary.smtp_configured else "not configured" }}
+  </span>
+  {% if summary.selected_community %}
+  <span class="text-xs px-3 py-1 rounded-full bg-gray-200 text-gray-600">
+    Community: {{ summary.selected_community }}
+  </span>
+  {% endif %}
+</div>
