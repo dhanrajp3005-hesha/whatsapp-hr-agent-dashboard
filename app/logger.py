@@ -1,17 +1,7 @@
 import logging
 from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
 
 from app.config import LOG_DIR
-
-# ==========================================================
-# Log Directory
-# ==========================================================
-
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-APP_LOG = LOG_DIR / "app.log"
-ERROR_LOG = LOG_DIR / "error.log"
 
 # ==========================================================
 # Logger
@@ -29,44 +19,52 @@ if not logger.handlers:
     )
 
     # ------------------------------------------------------
-    # Console
+    # Console - always attached. This is the only handler on a
+    # read-only-filesystem deployment (e.g. Vercel Functions, where
+    # only /tmp is writable); Vercel already captures stdout/stderr in
+    # its own Functions logs UI.
     # ------------------------------------------------------
 
     console = logging.StreamHandler()
     console.setFormatter(formatter)
-
-    # ------------------------------------------------------
-    # App Log
-    # ------------------------------------------------------
-
-    app_handler = TimedRotatingFileHandler(
-        APP_LOG,
-        when="midnight",
-        interval=1,
-        backupCount=30,
-        encoding="utf-8",
-    )
-
-    app_handler.setLevel(logging.INFO)
-    app_handler.setFormatter(formatter)
-
-    # ------------------------------------------------------
-    # Error Log
-    # ------------------------------------------------------
-
-    error_handler = TimedRotatingFileHandler(
-        ERROR_LOG,
-        when="midnight",
-        interval=1,
-        backupCount=30,
-        encoding="utf-8",
-    )
-
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(formatter)
-
     logger.addHandler(console)
-    logger.addHandler(app_handler)
-    logger.addHandler(error_handler)
+
+    # ------------------------------------------------------
+    # App / Error log files - best effort only. Any environment without
+    # a writable LOG_DIR falls back to console-only logging instead of
+    # crashing the import of this module - and therefore every module
+    # that imports it, including app.api.
+    # ------------------------------------------------------
+
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        app_handler = TimedRotatingFileHandler(
+            LOG_DIR / "app.log",
+            when="midnight",
+            interval=1,
+            backupCount=30,
+            encoding="utf-8",
+        )
+        app_handler.setLevel(logging.INFO)
+        app_handler.setFormatter(formatter)
+        logger.addHandler(app_handler)
+
+        error_handler = TimedRotatingFileHandler(
+            LOG_DIR / "error.log",
+            when="midnight",
+            interval=1,
+            backupCount=30,
+            encoding="utf-8",
+        )
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(formatter)
+        logger.addHandler(error_handler)
+
+    except OSError:
+        logger.warning(
+            "LOG_DIR (%s) is not writable - file logging disabled, console-only.",
+            LOG_DIR,
+        )
 
     logger.propagate = False

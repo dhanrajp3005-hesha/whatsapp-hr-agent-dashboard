@@ -155,11 +155,19 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"                    
 
 ### 3. Install dependencies
 
+`requirements.txt` is dashboard-only (what Vercel installs) - Playwright
+and its transitive deps live in `requirements-worker.txt` instead, since
+the dashboard never imports Playwright and Vercel doesn't tree-shake
+unused packages out of a deploy.
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium     # only needed on whichever machine runs the worker
+
+pip install -r requirements.txt          # dashboard only
+# or, to also run the worker locally:
+pip install -r requirements-worker.txt   # dashboard + worker
+playwright install chromium              # only needed if you installed requirements-worker.txt
 ```
 
 ### 4. Run it
@@ -188,20 +196,43 @@ Then hit **Scan now** on the dashboard.
 
 **Dashboard → Vercel:**
 
+Vercel auto-detects the FastAPI app from `requirements.txt` + the
+`api/index.py` entrypoint - no build config needed beyond `vercel.json`'s
+`maxDuration`. Connect the GitHub repo in Vercel (or run `vercel --prod`
+from the CLI) and set these in **Project Settings → Environment
+Variables**:
+
+| Variable | Required |
+|---|---|
+| `SUPABASE_URL` | yes |
+| `SUPABASE_ANON_KEY` | yes |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes |
+| `SESSION_SECRET` | yes |
+| `APP_ENCRYPTION_KEY` | yes - **copy the exact value from your local `.env`, don't regenerate.** It's already encrypting real users' stored SMTP passwords via Fernet; a different key makes every existing encrypted password permanently undecryptable. |
+| `MIN_SCAN_INTERVAL_SECONDS` | optional, has a default |
+
+`WHATSAPP_HEADLESS`, `WORKER_POLL_INTERVAL_SECONDS`, `MAIL_SUBJECT`,
+`MAIL_DELAY`, `DEBUG` are worker-only and not needed on Vercel at all.
+
+**Worker → Docker, on an always-on host:**
+
 ```bash
-vercel --prod
+docker compose up -d --build
+docker compose logs -f worker
 ```
 
-Set the same Supabase env vars in the Vercel project settings. `vercel.json`
-routes everything through `api/index.py`, which only imports the parts of
-the app that never touch Playwright.
-
-**Worker → anywhere with a persistent disk:**
-
-Your own machine, a small VPS, or a container on Railway/Render/Fly.io —
-run `python -m worker.run_worker` under a process supervisor (systemd,
-`pm2`, or a restart-always Docker container). It needs the same `.env`
-and a persistent volume for `browser_data/`.
+Ships as a single `docker-compose.yml` service built from the repo's
+`Dockerfile` (based on `mcr.microsoft.com/playwright/python`, which bundles
+Chromium + its system deps pre-baked). Runs as that image's built-in
+non-root `pwuser` (uid/gid 1001:1001, which happens to match this host's
+own user, keeping the bind-mounted `./browser_data` writable) instead of
+root, avoiding the need for `--no-sandbox` (Chromium refuses to launch as
+root without it, and weakening the sandbox isn't worth it for a one-line
+Docker fix). `restart: unless-stopped` keeps it running across reboots;
+`shm_size: 1gb` avoids Chromium's common Docker crash from the 64MB
+default `/dev/shm`. Works the same on this machine or any other
+always-on Docker host - just copy `.env`, `browser_data/` (if migrating
+an existing connected session), and run the same command.
 
 ## Security notes
 
@@ -254,6 +285,9 @@ worker/run_worker.py       # Always-on queue poller
 api/index.py                # Vercel entrypoint
 templates/                   # Jinja2 + HTMX pages
 supabase/migrations/           # SQL schema, RLS policies, storage bucket
+requirements.txt                # Dashboard deps (what Vercel installs)
+requirements-worker.txt          # + Playwright, for the worker/Docker build
+Dockerfile, docker-compose.yml     # Worker container
 ```
 
 ## Author

@@ -1,0 +1,18 @@
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: whatsapp-hr-agent-worker:latest
+    container_name: whatsapp-hr-agent-worker
+    restart: unless-stopped
+    shm_size: "1gb"
+    env_file:
+      - .env
+    environment:
+      # No X display exists in this container - force headless
+      # regardless of whatever WHATSAPP_HEADLESS is set to in .env.
+      WHATSAPP_HEADLESS: "true"
+    volumes:
+      - ./browser_data:/app/browser_data
+      - ./logs:/app/logs

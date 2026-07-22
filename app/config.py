@@ -18,7 +18,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 BROWSER_DATA_DIR = BASE_DIR / "browser_data"
 
 LOG_DIR = BASE_DIR / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    # Read-only deployment filesystem (e.g. Vercel Functions, where only
+    # /tmp is writable). app/logger.py performs the same defensive check
+    # before attaching file handlers and falls back to console-only.
+    pass
 
 MAIL_TEMPLATE = BASE_DIR / "templates" / "mail.html"
 

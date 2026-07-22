@@ -1,0 +1,16 @@
+venv/
+browser_data/
+logs/
+.env
+.env.local
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+.idea/
+scripts/
+resume/
+supabase/
+n8n_data/
+*.zip
