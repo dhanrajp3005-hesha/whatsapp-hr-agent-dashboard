@@ -106,48 +106,54 @@ from app.logger import logger
 
 
 def scroll_up(page: Page) -> bool:
+    """
+    Scrolls the open chat's message pane to the top to trigger WhatsApp
+    Web's lazy-loading of older messages, then reports whether new
+    content actually appeared. Returns False once the pane's
+    scrollHeight stops growing - the real top of the conversation's
+    history - so collect_messages() knows when to stop.
+    """
 
     try:
-
         result = page.evaluate("""
-        () => {
-
+        async () => {
             const main = document.querySelector("#main");
+            if (!main) return { ok: false, reason: "main not found" };
 
-            if (!main)
-                return "MAIN NOT FOUND";
-
-            function walk(node, depth = 0) {
-
-                const items = [];
-
-                for (const child of node.children) {
-
-                    items.push({
-                        tag: child.tagName,
-                        id: child.id,
-                        testid: child.getAttribute("data-testid"),
-                        class: child.className,
-                        scrollHeight: child.scrollHeight,
-                        clientHeight: child.clientHeight
-                    });
-
-                    items.push(...walk(child, depth + 1));
+            let target = null;
+            for (const el of main.querySelectorAll("*")) {
+                if (el.scrollHeight > el.clientHeight + 100) {
+                    const style = getComputedStyle(el);
+                    if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                        target = el;
+                        break;
+                    }
                 }
-
-                return items;
             }
 
-            return walk(main);
+            if (!target) return { ok: false, reason: "no scrollable pane found" };
 
+            const before = target.scrollHeight;
+            target.scrollTop = 0;
+
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+
+            return {
+                ok: true,
+                grew: target.scrollHeight > before,
+                before: before,
+                after: target.scrollHeight,
+            };
         }
         """)
 
-        logger.info("=" * 80)
-        logger.info(result)
-        logger.info("=" * 80)
+        logger.info("scroll_up result : %s", result)
 
-        return False
+        if not result.get("ok"):
+            logger.warning("Unable to scroll : %s", result.get("reason"))
+            return False
+
+        return bool(result.get("grew"))
 
     except Exception as e:
 
