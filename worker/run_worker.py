@@ -22,6 +22,8 @@ from app.logger import logger
 from app.scanner import scan_whatsapp
 from app.whatsapp_session import start_login_session, disconnect_session
 
+STALE_RUNNING_JOB_SECONDS = 600
+
 
 def _run_scan(user_id: str) -> None:
     settings = repository.get_user_settings(user_id) or {}
@@ -41,30 +43,67 @@ JOB_HANDLERS = {
 }
 
 
+def _safe_complete_worker_job(job_id: str, status: str, error_message: str = None) -> None:
+    """
+    Recording a job's outcome can itself fail (e.g. a transient network
+    blip affecting Supabase right when a job also failed for the same
+    reason - exactly what crashed this worker once already). Never let
+    that escape uncaught: the job row staying stuck in 'running' is
+    recoverable (see reset_stale_running_jobs below); a dead worker
+    process is not.
+    """
+
+    try:
+        repository.complete_worker_job(job_id, status, error_message)
+    except Exception:
+        logger.exception("Could not record worker_job %s as %s - will self-heal on next startup.", job_id, status)
+
+
+def _safe_log_activity(user_id: str, event_type: str, message: str) -> None:
+    try:
+        repository.log_activity(user_id, event_type, message)
+    except Exception:
+        logger.exception("Could not write activity_log entry for user %s", user_id)
+
+
 def process_job(job: dict) -> None:
     handler = JOB_HANDLERS.get(job["kind"])
 
     if not handler:
-        repository.complete_worker_job(job["id"], "failed", f"Unknown job kind: {job['kind']}")
+        _safe_complete_worker_job(job["id"], "failed", f"Unknown job kind: {job['kind']}")
         return
 
     logger.info("Processing worker_job %s (%s) for user %s", job["id"], job["kind"], job["user_id"])
 
     try:
         handler(job["user_id"])
-        repository.complete_worker_job(job["id"], "completed")
+        _safe_complete_worker_job(job["id"], "completed")
         logger.info("Completed worker_job %s", job["id"])
     except Exception as exc:
         logger.exception("worker_job %s failed", job["id"])
-        repository.complete_worker_job(job["id"], "failed", str(exc))
-        repository.log_activity(job["user_id"], "error", f"{job['kind']} failed: {exc}")
+        _safe_complete_worker_job(job["id"], "failed", str(exc))
+        _safe_log_activity(job["user_id"], "error", f"{job['kind']} failed: {exc}")
 
 
 def main() -> None:
     logger.info("Worker started. Polling every %ss.", WORKER_POLL_INTERVAL_SECONDS)
 
+    try:
+        reclaimed = repository.reset_stale_running_jobs(STALE_RUNNING_JOB_SECONDS)
+        if reclaimed:
+            logger.warning("Reclaimed %s job(s) stuck 'running' from a previous crash.", reclaimed)
+    except Exception:
+        logger.exception("Could not check for stale running jobs at startup.")
+
     while True:
-        job = repository.claim_next_worker_job()
+        try:
+            job = repository.claim_next_worker_job()
+        except Exception:
+            # A transient Supabase/network outage must never kill this
+            # process - that's exactly what happened before this fix.
+            logger.exception("Failed to poll worker_jobs - retrying shortly.")
+            time.sleep(WORKER_POLL_INTERVAL_SECONDS)
+            continue
 
         if job:
             process_job(job)

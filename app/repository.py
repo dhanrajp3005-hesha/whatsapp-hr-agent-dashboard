@@ -6,7 +6,7 @@ bypasses RLS - defense in depth, and it keeps callers (api.py, mailer.py,
 scanner.py, whatsapp_session.py) from needing to know the schema.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.crypto import encrypt_secret, decrypt_secret
@@ -465,3 +465,34 @@ def complete_worker_job(job_id: str, status: str, error_message: Optional[str] =
     get_service_client().table("worker_jobs").update(
         {"status": status, "completed_at": _now_iso(), "error_message": error_message}
     ).eq("id", job_id).execute()
+
+
+def reset_stale_running_jobs(older_than_seconds: int) -> int:
+    """
+    Requeues jobs stuck in 'running' from a worker process that died
+    mid-job (crash, kill -9, host reboot) without ever reaching
+    complete_worker_job. Called once at worker startup so a crash never
+    permanently blocks that user's queue (claim_next_worker_job skips
+    users with a running job).
+    """
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)).isoformat()
+
+    stale = (
+        get_service_client()
+        .table("worker_jobs")
+        .select("id")
+        .eq("status", "running")
+        .lt("started_at", cutoff)
+        .execute()
+    )
+
+    if not stale.data:
+        return 0
+
+    ids = [row["id"] for row in stale.data]
+    get_service_client().table("worker_jobs").update(
+        {"status": "pending", "started_at": None}
+    ).in_("id", ids).execute()
+
+    return len(ids)
