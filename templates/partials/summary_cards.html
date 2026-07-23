@@ -29,4 +29,8 @@
     Community: {{ summary.selected_community }}
   </span>
   {% endif %}
+  <span class="text-xs px-3 py-1 rounded-full {{ 'bg-amber-100 text-amber-700' if summary.upload_remaining_today == 0 else 'bg-gray-200 text-gray-600' }}">
+    Uploaded-sheet emails today: {{ summary.upload_sent_today }} / {{ summary.daily_send_cap }}
+    ({{ summary.upload_remaining_today }} left)
+  </span>
 </div>

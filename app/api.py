@@ -10,6 +10,7 @@ from app import repository
 from app.auth import CurrentUser, clear_session_cookie, create_session_cookie, get_current_user, get_current_user_optional
 from app.config import (
     BASE_DIR,
+    DAILY_SEND_CAP,
     MAX_UPLOAD_BYTES,
     MIN_SCAN_INTERVAL_SECONDS,
     RESUME_BUCKET,
@@ -76,12 +77,16 @@ def _onboarding_step(settings: Optional[dict]) -> str:
 def _dashboard_summary(user_id: str) -> dict:
     settings = repository.get_user_settings(user_id) or {}
     counts = repository.job_counts(user_id)
+    upload_sent_today = repository.count_sent_today(user_id, source="upload")
 
     return {
         **counts,
         "whatsapp_status": settings.get("whatsapp_session_status", "disconnected"),
         "smtp_configured": bool(settings.get("smtp_password_encrypted")),
         "selected_community": settings.get("selected_community_name"),
+        "upload_sent_today": upload_sent_today,
+        "daily_send_cap": DAILY_SEND_CAP,
+        "upload_remaining_today": max(DAILY_SEND_CAP - upload_sent_today, 0),
     }
 
 
