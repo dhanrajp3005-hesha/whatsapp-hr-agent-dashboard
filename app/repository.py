@@ -242,22 +242,39 @@ def list_pending_job_emails(
     always fetched in full (source="whatsapp", no limit).
     """
 
-    query = (
-        get_service_client()
-        .table("jobs")
-        .select("id, email")
-        .eq("user_id", user_id)
-        .eq("mail_status", "Pending")
-        .order("created_at")
-    )
+    client = get_service_client()
 
-    if source is not None:
-        query = query.eq("source", source)
+    def base_query():
+        query = (
+            client.table("jobs")
+            .select("id, email")
+            .eq("user_id", user_id)
+            .eq("mail_status", "Pending")
+            .order("created_at")
+        )
+        if source is not None:
+            query = query.eq("source", source)
+        return query
 
     if limit is not None:
-        query = query.limit(limit)
+        # Always well under PostgREST's 1000-row response cap (upload's
+        # daily cap tops out at DAILY_SEND_CAP), so a single page suffices.
+        return base_query().limit(limit).execute().data
 
-    return query.execute().data
+    # No limit means "every pending row regardless of count" (the
+    # uncapped WhatsApp path) - paginate rather than one unbounded
+    # .execute(), which PostgREST would otherwise silently cap at 1000.
+    page_size = 1000
+    start = 0
+    rows: list[dict] = []
+    while True:
+        page = base_query().range(start, start + page_size - 1).execute().data
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        start += page_size
+
+    return rows
 
 
 def count_sent_today(user_id: str, source: Optional[str] = None) -> int:
@@ -334,15 +351,34 @@ def list_jobs(
 
 
 def list_all_jobs(user_id: str) -> list[dict]:
-    res = (
-        get_service_client()
-        .table("jobs")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return res.data
+    """
+    Paginates through every row rather than one unbounded .execute() -
+    PostgREST silently caps a single response at 1000 rows (Supabase's
+    default db-max-rows), which would otherwise make the Excel export
+    quietly drop everything past the first 1000 for any user with a
+    large uploaded sheet, with no error to signal the truncation.
+    """
+
+    client = get_service_client()
+    page_size = 1000
+    start = 0
+    rows: list[dict] = []
+
+    while True:
+        res = (
+            client.table("jobs")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .range(start, start + page_size - 1)
+            .execute()
+        )
+        rows.extend(res.data)
+        if len(res.data) < page_size:
+            break
+        start += page_size
+
+    return rows
 
 
 def job_counts(user_id: str) -> dict:
