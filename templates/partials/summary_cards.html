@@ -33,4 +33,20 @@
     Uploaded-sheet emails today: {{ summary.upload_sent_today }} / {{ summary.daily_send_cap }}
     ({{ summary.upload_remaining_today }} left)
   </span>
+  {% if summary.upload_sending_paused %}
+  <span class="text-xs px-3 py-1 rounded-full bg-gray-200 text-gray-600">Uploaded-sheet sending: stopped</span>
+  {% if summary.has_pending_upload %}
+  <button hx-post="/api/jobs/send/resume" hx-swap="none"
+          onclick="this.disabled=true; this.textContent='Starting...'"
+          class="text-xs px-3 py-1 rounded-full bg-emerald-600 text-white font-medium hover:bg-emerald-700">
+    Start sending
+  </button>
+  {% endif %}
+  {% elif summary.has_pending_upload %}
+  <button hx-post="/api/jobs/send/pause" hx-swap="none"
+          onclick="this.disabled=true; this.textContent='Stopping...'"
+          class="text-xs px-3 py-1 rounded-full bg-red-600 text-white font-medium hover:bg-red-700">
+    Stop sending
+  </button>
+  {% endif %}
 </div>

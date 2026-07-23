@@ -6,6 +6,7 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import Optional
 
 from app import repository
 from app.config import MAIL_TEMPLATE, MAIL_SUBJECT, MAIL_DELAY, RESUME_BUCKET, DAILY_SEND_CAP
@@ -62,12 +63,17 @@ def send_test_email(user_id: str, smtp_settings: dict) -> None:
         smtp.sendmail(smtp_settings["from_email"], [smtp_settings["from_email"]], message.as_string())
 
 
-def send_pending_emails(user_id: str) -> dict:
+def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
     """
     Sends the resume + cover email to every 'Pending' job row for this
     user, marking each Sent/Failed in the jobs table and writing an
     activity_log entry per outcome. Requires SMTP settings and a
     resume to already be configured (see app/repository.py).
+
+    job_id, when passed (only by the send_pending_mail worker_jobs path -
+    see worker/run_worker.py), is polled once per email so a user's
+    "Stop sending" click (app/repository.py's request_worker_job_cancel)
+    can interrupt an in-progress batch after the current email finishes.
     """
 
     smtp_settings = repository.get_decrypted_smtp_settings(user_id)
@@ -88,21 +94,25 @@ def send_pending_emails(user_id: str) -> dict:
     # that the sheet upload feature not throttle WhatsApp scanning.
     pending = repository.list_pending_job_emails(user_id, source="whatsapp")
 
-    already_sent_today = repository.count_sent_today(user_id, source="upload")
-    remaining_upload_budget = DAILY_SEND_CAP - already_sent_today
-    if remaining_upload_budget > 0:
-        pending += repository.list_pending_job_emails(
-            user_id, source="upload", limit=remaining_upload_budget
-        )
-    elif repository.list_pending_job_emails(user_id, source="upload", limit=1):
-        logger.info(
-            "send_pending_emails: upload daily cap (%s) already reached for user %s",
-            DAILY_SEND_CAP, user_id,
-        )
-        repository.log_activity(
-            user_id, "send_capped",
-            f"Daily send limit of {DAILY_SEND_CAP} for uploaded-sheet emails already reached today.",
-        )
+    upload_paused = settings.get("upload_sending_paused", False)
+    if upload_paused:
+        logger.info("send_pending_emails: uploaded-sheet sending is paused for user %s", user_id)
+    else:
+        already_sent_today = repository.count_sent_today(user_id, source="upload")
+        remaining_upload_budget = DAILY_SEND_CAP - already_sent_today
+        if remaining_upload_budget > 0:
+            pending += repository.list_pending_job_emails(
+                user_id, source="upload", limit=remaining_upload_budget
+            )
+        elif repository.list_pending_job_emails(user_id, source="upload", limit=1):
+            logger.info(
+                "send_pending_emails: upload daily cap (%s) already reached for user %s",
+                DAILY_SEND_CAP, user_id,
+            )
+            repository.log_activity(
+                user_id, "send_capped",
+                f"Daily send limit of {DAILY_SEND_CAP} for uploaded-sheet emails already reached today.",
+            )
 
     if not pending:
         logger.info("send_pending_emails: nothing pending for user %s", user_id)
@@ -121,7 +131,20 @@ def send_pending_emails(user_id: str) -> dict:
         smtp.starttls(context=context)
         smtp.login(smtp_settings["smtp_username"], smtp_settings["smtp_password"])
 
-        for job in pending:
+        cancelled = False
+        for index, job in enumerate(pending):
+            if job_id and repository.is_job_cancelled(job_id):
+                cancelled = True
+                logger.info(
+                    "send_pending_emails: cancelled for user %s after %s of %s",
+                    user_id, index, len(pending),
+                )
+                repository.log_activity(
+                    user_id, "send_cancelled",
+                    f"Stopped after {success} sent - {len(pending) - index} email(s) left pending.",
+                )
+                break
+
             email = job["email"]
 
             if not is_valid_email(email):
@@ -161,4 +184,4 @@ def send_pending_emails(user_id: str) -> dict:
         smtp.quit()
 
     logger.info("send_pending_emails done for %s: success=%s failed=%s", user_id, success, failed)
-    return {"success": success, "failed": failed}
+    return {"success": success, "failed": failed, "cancelled": cancelled}

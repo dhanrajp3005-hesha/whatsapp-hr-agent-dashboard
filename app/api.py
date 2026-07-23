@@ -78,6 +78,7 @@ def _dashboard_summary(user_id: str) -> dict:
     settings = repository.get_user_settings(user_id) or {}
     counts = repository.job_counts(user_id)
     upload_sent_today = repository.count_sent_today(user_id, source="upload")
+    has_pending_upload = bool(repository.list_pending_job_emails(user_id, source="upload", limit=1))
 
     return {
         **counts,
@@ -87,6 +88,9 @@ def _dashboard_summary(user_id: str) -> dict:
         "upload_sent_today": upload_sent_today,
         "daily_send_cap": DAILY_SEND_CAP,
         "upload_remaining_today": max(DAILY_SEND_CAP - upload_sent_today, 0),
+        "upload_sending_paused": bool(settings.get("upload_sending_paused")),
+        "upload_send_active": bool(repository.get_active_worker_job(user_id, "send_pending_mail")),
+        "has_pending_upload": has_pending_upload,
     }
 
 
@@ -436,8 +440,13 @@ def upload_jobs_file(file: UploadFile = File(...), user: CurrentUser = Depends(g
         f"{result['skipped_unparseable']} row(s) skipped as unparseable.",
     )
 
+    settings = repository.get_user_settings(user.id) or {}
     queued = False
-    if inserted > 0 and not repository.get_active_worker_job(user.id, "send_pending_mail"):
+    if (
+        inserted > 0
+        and not settings.get("upload_sending_paused")
+        and not repository.get_active_worker_job(user.id, "send_pending_mail")
+    ):
         repository.create_worker_job(user.id, "send_pending_mail")
         queued = True
 
@@ -448,6 +457,39 @@ def upload_jobs_file(file: UploadFile = File(...), user: CurrentUser = Depends(g
         "skipped_samples": result["skipped_samples"],
         "queued_for_sending": queued,
     }
+
+
+@app.post("/api/jobs/send/pause")
+def pause_upload_sending(user: CurrentUser = Depends(get_current_user)):
+    """
+    Stops the uploaded-sheet pipeline at any time: prevents future sends
+    from starting (checked in send_pending_emails), and interrupts an
+    already-running batch after its current email (see cancel_requested
+    in app/mailer.py). WhatsApp-scanned leads are unaffected.
+    """
+
+    repository.set_upload_sending_paused(user.id, True)
+
+    active_job = repository.get_active_worker_job(user.id, "send_pending_mail")
+    if active_job:
+        repository.request_worker_job_cancel(active_job["id"])
+
+    repository.log_activity(user.id, "send_paused", "Uploaded-sheet sending stopped by user.")
+    return {"paused": True, "interrupted_running_batch": bool(active_job)}
+
+
+@app.post("/api/jobs/send/resume")
+def resume_upload_sending(user: CurrentUser = Depends(get_current_user)):
+    repository.set_upload_sending_paused(user.id, False)
+    repository.log_activity(user.id, "send_resumed", "Uploaded-sheet sending resumed by user.")
+
+    queued = False
+    has_pending_upload = repository.list_pending_job_emails(user.id, source="upload", limit=1)
+    if has_pending_upload and not repository.get_active_worker_job(user.id, "send_pending_mail"):
+        repository.create_worker_job(user.id, "send_pending_mail")
+        queued = True
+
+    return {"paused": False, "queued_for_sending": queued}
 
 
 @app.get("/api/activity")

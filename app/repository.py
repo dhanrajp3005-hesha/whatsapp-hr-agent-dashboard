@@ -467,6 +467,42 @@ def create_worker_job(user_id: str, kind: str) -> dict:
     return res.data[0]
 
 
+def request_worker_job_cancel(job_id: str) -> None:
+    """
+    Signals an in-progress send_pending_mail job to stop after finishing
+    whichever email it's currently on - see the cancel_requested check
+    in app/mailer.py's send_pending_emails.
+    """
+
+    get_service_client().table("worker_jobs").update(
+        {"cancel_requested": True}
+    ).eq("id", job_id).execute()
+
+
+def is_job_cancelled(job_id: str) -> bool:
+    res = (
+        get_service_client()
+        .table("worker_jobs")
+        .select("cancel_requested")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    return bool(res.data and res.data.get("cancel_requested"))
+
+
+def set_upload_sending_paused(user_id: str, paused: bool) -> dict:
+    ensure_user_settings(user_id)
+    res = (
+        get_service_client()
+        .table("user_settings")
+        .update({"upload_sending_paused": paused})
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return res.data[0]
+
+
 def claim_next_worker_job() -> Optional[dict]:
     """
     Worker-side: atomically claim the oldest pending job whose user has

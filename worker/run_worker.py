@@ -77,7 +77,13 @@ def process_job(job: dict) -> None:
     logger.info("Processing worker_job %s (%s) for user %s", job["id"], job["kind"], job["user_id"])
 
     try:
-        handler(job["user_id"])
+        # send_pending_mail is the one kind a user can interrupt mid-run
+        # (see app/mailer.py's cancel_requested check) - it alone needs
+        # its own job_id passed through so it knows which row to poll.
+        if job["kind"] == "send_pending_mail":
+            handler(job["user_id"], job_id=job["id"])
+        else:
+            handler(job["user_id"])
         _safe_complete_worker_job(job["id"], "completed")
         logger.info("Completed worker_job %s", job["id"])
     except Exception as exc:
