@@ -41,6 +41,7 @@ JOB_HANDLERS = {
     "scan": _run_scan,
     "whatsapp_connect": start_login_session,
     "whatsapp_disconnect": disconnect_session,
+    "send_pending_mail": send_pending_emails,
 }
 
 
