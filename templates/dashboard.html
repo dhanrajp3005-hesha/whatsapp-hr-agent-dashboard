@@ -20,6 +20,16 @@
     </a>
   </div>
 
+  <div class="flex items-center justify-between">
+    <form id="upload-form" class="flex items-center gap-2">
+      <input id="upload-file" name="file" type="file" accept=".csv,.xlsx,.pdf" required class="text-sm" />
+      <button type="submit" id="upload-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
+        Upload sheet
+      </button>
+    </form>
+    <span id="upload-status" class="text-sm text-gray-500"></span>
+  </div>
+
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <div class="lg:col-span-2 bg-white border rounded-xl p-4">
       <div class="flex items-center justify-between mb-3">
@@ -69,6 +79,42 @@
     } finally {
       btn.disabled = false;
       btn.textContent = "Scan now";
+    }
+  });
+
+  document.getElementById("upload-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const btn = document.getElementById("upload-btn");
+    const statusEl = document.getElementById("upload-status");
+    const fileInput = document.getElementById("upload-file");
+
+    if (!fileInput.files.length) return;
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    btn.disabled = true;
+    btn.textContent = "Uploading...";
+    statusEl.textContent = "";
+
+    try {
+      const res = await fetch("/api/jobs/upload", { method: "POST", body: formData });
+      const body = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        statusEl.textContent =
+          `${body.extracted} found, ${body.new} new, ${body.skipped_unparseable} skipped` +
+          (body.queued_for_sending ? " - Sending queued." : "");
+        fileInput.value = "";
+        htmx.trigger(document.getElementById("summary-cards"), "load");
+        htmx.trigger(document.getElementById("jobs-table"), "load");
+      } else {
+        statusEl.textContent = body.detail || "Could not process this file.";
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Upload sheet";
     }
   });
 </script>

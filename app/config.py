@@ -97,6 +97,15 @@ MAIL_DELAY = int(os.getenv("MAIL_DELAY", "15"))
 MIN_SCAN_INTERVAL_SECONDS = int(os.getenv("MIN_SCAN_INTERVAL_SECONDS", "300"))
 
 # ==========================================================
+# Daily send cap - combined across the WhatsApp-scan pipeline and the
+# uploaded-sheet pipeline (both funnel through send_pending_emails, see
+# app/mailer.py), and the upload endpoint's max file size (app/api.py).
+# ==========================================================
+
+DAILY_SEND_CAP = int(os.getenv("DAILY_SEND_CAP", "250"))
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
+
+# ==========================================================
 # Worker polling
 # ==========================================================
 

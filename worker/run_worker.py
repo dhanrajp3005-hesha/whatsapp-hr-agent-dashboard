@@ -19,6 +19,7 @@ import time
 from app import repository
 from app.config import BROWSER_DATA_DIR, WORKER_POLL_INTERVAL_SECONDS
 from app.logger import logger
+from app.mailer import send_pending_emails
 from app.scanner import scan_whatsapp
 from app.whatsapp_session import start_login_session, disconnect_session
 

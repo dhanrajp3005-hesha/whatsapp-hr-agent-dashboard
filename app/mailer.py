@@ -8,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from app import repository
-from app.config import MAIL_TEMPLATE, MAIL_SUBJECT, MAIL_DELAY, RESUME_BUCKET
+from app.config import MAIL_TEMPLATE, MAIL_SUBJECT, MAIL_DELAY, RESUME_BUCKET, DAILY_SEND_CAP
 from app.db import get_service_client
 from app.logger import logger
 
@@ -83,7 +83,18 @@ def send_pending_emails(user_id: str) -> dict:
         repository.log_activity(user_id, "error", "Resume not uploaded - emails not sent.")
         return {"success": 0, "failed": 0}
 
-    pending = repository.list_pending_job_emails(user_id)
+    already_sent_today = repository.count_sent_today(user_id)
+    remaining_budget = DAILY_SEND_CAP - already_sent_today
+    if remaining_budget <= 0:
+        logger.info(
+            "send_pending_emails: daily cap (%s) already reached for user %s", DAILY_SEND_CAP, user_id
+        )
+        repository.log_activity(
+            user_id, "send_capped", f"Daily send limit of {DAILY_SEND_CAP} already reached today."
+        )
+        return {"success": 0, "failed": 0, "capped": True}
+
+    pending = repository.list_pending_job_emails(user_id, limit=remaining_budget)
     if not pending:
         logger.info("send_pending_emails: nothing pending for user %s", user_id)
         return {"success": 0, "failed": 0}

@@ -8,11 +8,19 @@ from fastapi.templating import Jinja2Templates
 
 from app import repository
 from app.auth import CurrentUser, clear_session_cookie, create_session_cookie, get_current_user, get_current_user_optional
-from app.config import BASE_DIR, MIN_SCAN_INTERVAL_SECONDS, RESUME_BUCKET, SUPABASE_ANON_KEY, SUPABASE_URL
+from app.config import (
+    BASE_DIR,
+    MAX_UPLOAD_BYTES,
+    MIN_SCAN_INTERVAL_SECONDS,
+    RESUME_BUCKET,
+    SUPABASE_ANON_KEY,
+    SUPABASE_URL,
+)
 from app.db import get_service_client
 from app.excel import export_jobs_xlsx
 from app.mailer import send_test_email
 from app.models import CommunitySelectIn, MailContentIn, SessionIn, SmtpSettingsIn
+from app.upload_parser import parse_uploaded_file
 
 app = FastAPI(title="WhatsApp HR Agent Dashboard")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -393,6 +401,48 @@ def api_jobs_export(user: CurrentUser = Depends(get_current_user)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=jobs.xlsx"},
     )
+
+
+@app.post("/api/jobs/upload")
+def upload_jobs_file(file: UploadFile = File(...), user: CurrentUser = Depends(get_current_user)):
+    filename = file.filename or ""
+
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"File too large - max {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.",
+        )
+
+    try:
+        result = parse_uploaded_file(filename, content)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    inserted = 0
+    jobs = result["jobs"]
+    for i in range(0, len(jobs), 500):
+        inserted += repository.insert_jobs(user.id, jobs[i:i + 500], source="upload")
+
+    repository.log_activity(
+        user.id,
+        "upload_processed",
+        f"{result['extracted']} email(s) extracted from {filename}, {inserted} new, "
+        f"{result['skipped_unparseable']} row(s) skipped as unparseable.",
+    )
+
+    queued = False
+    if inserted > 0 and not repository.get_active_worker_job(user.id, "send_pending_mail"):
+        repository.create_worker_job(user.id, "send_pending_mail")
+        queued = True
+
+    return {
+        "extracted": result["extracted"],
+        "new": inserted,
+        "skipped_unparseable": result["skipped_unparseable"],
+        "skipped_samples": result["skipped_samples"],
+        "queued_for_sending": queued,
+    }
 
 
 @app.get("/api/activity")

@@ -192,10 +192,14 @@ def list_communities(user_id: str) -> list[str]:
 # jobs
 # ==========================================================
 
-def insert_jobs(user_id: str, jobs: list[dict]) -> int:
+def insert_jobs(user_id: str, jobs: list[dict], source: str = "whatsapp") -> int:
     """
     Insert new job rows, relying on the (user_id, email) unique index to
-    silently skip duplicates. Returns the number of rows actually
+    silently skip duplicates - this is the whole dedup mechanism for
+    both the WhatsApp scan pipeline and the upload pipeline (see
+    app/upload_parser.py, app/api.py's /api/jobs/upload): an
+    already-seen email is a safe no-op, existing row (including its
+    mail_status) untouched. Returns the number of rows actually
     inserted.
     """
 
@@ -213,6 +217,7 @@ def insert_jobs(user_id: str, jobs: list[dict]) -> int:
             "apply_link": job.get("apply_link"),
             "mail_status": "Pending",
             "source_message_hash": job.get("source_message_hash"),
+            "source": source,
         }
         for job in jobs
     ]
@@ -226,16 +231,52 @@ def insert_jobs(user_id: str, jobs: list[dict]) -> int:
     return len(res.data or [])
 
 
-def list_pending_job_emails(user_id: str) -> list[dict]:
-    res = (
+def list_pending_job_emails(user_id: str, limit: Optional[int] = None) -> list[dict]:
+    """
+    FIFO by created_at - matters now that a shared daily send cap means
+    not every call necessarily drains every pending row (see
+    app/mailer.py): the oldest lead from either pipeline goes out
+    first, so neither pipeline can starve the other via insertion-order
+    timing.
+    """
+
+    query = (
         get_service_client()
         .table("jobs")
         .select("id, email")
         .eq("user_id", user_id)
         .eq("mail_status", "Pending")
+        .order("created_at")
+    )
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    return query.execute().data
+
+
+def count_sent_today(user_id: str) -> int:
+    """
+    Emails sent since the start of the current UTC calendar day - the
+    combined daily send cap enforced in app/mailer.py checks this
+    across both the WhatsApp scan and upload pipelines together, since
+    both funnel through the same jobs table and send_pending_emails().
+    """
+
+    start_of_day = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
+
+    res = (
+        get_service_client()
+        .table("jobs")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .eq("mail_status", "Sent")
+        .gte("sent_at", start_of_day)
         .execute()
     )
-    return res.data
+    return res.count or 0
 
 
 def mark_job_sent(user_id: str, job_id: str) -> None:
