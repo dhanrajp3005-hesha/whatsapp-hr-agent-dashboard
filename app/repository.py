@@ -240,6 +240,13 @@ def list_pending_job_emails(
     pending rows aren't always fully drained in one call: the oldest
     uploaded lead goes out first. WhatsApp-sourced rows are uncapped and
     always fetched in full (source="whatsapp", no limit).
+
+    Ties on created_at are common and expected here - a single upload
+    inserts hundreds of rows in one statement, and Postgres's now()
+    is transaction-scoped, so they all land on the exact same
+    timestamp. .order("id") breaks those ties deterministically, so
+    "oldest first" is at least stable and repeatable across calls
+    rather than following Postgres's unspecified tie order.
     """
 
     client = get_service_client()
@@ -251,6 +258,7 @@ def list_pending_job_emails(
             .eq("user_id", user_id)
             .eq("mail_status", "Pending")
             .order("created_at")
+            .order("id")
         )
         if source is not None:
             query = query.eq("source", source)
