@@ -83,18 +83,27 @@ def send_pending_emails(user_id: str) -> dict:
         repository.log_activity(user_id, "error", "Resume not uploaded - emails not sent.")
         return {"success": 0, "failed": 0}
 
-    already_sent_today = repository.count_sent_today(user_id)
-    remaining_budget = DAILY_SEND_CAP - already_sent_today
-    if remaining_budget <= 0:
+    # The daily cap applies only to the uploaded-sheet pipeline -
+    # WhatsApp-scanned leads are sent uncapped, per the user's request
+    # that the sheet upload feature not throttle WhatsApp scanning.
+    pending = repository.list_pending_job_emails(user_id, source="whatsapp")
+
+    already_sent_today = repository.count_sent_today(user_id, source="upload")
+    remaining_upload_budget = DAILY_SEND_CAP - already_sent_today
+    if remaining_upload_budget > 0:
+        pending += repository.list_pending_job_emails(
+            user_id, source="upload", limit=remaining_upload_budget
+        )
+    elif repository.list_pending_job_emails(user_id, source="upload", limit=1):
         logger.info(
-            "send_pending_emails: daily cap (%s) already reached for user %s", DAILY_SEND_CAP, user_id
+            "send_pending_emails: upload daily cap (%s) already reached for user %s",
+            DAILY_SEND_CAP, user_id,
         )
         repository.log_activity(
-            user_id, "send_capped", f"Daily send limit of {DAILY_SEND_CAP} already reached today."
+            user_id, "send_capped",
+            f"Daily send limit of {DAILY_SEND_CAP} for uploaded-sheet emails already reached today.",
         )
-        return {"success": 0, "failed": 0, "capped": True}
 
-    pending = repository.list_pending_job_emails(user_id, limit=remaining_budget)
     if not pending:
         logger.info("send_pending_emails: nothing pending for user %s", user_id)
         return {"success": 0, "failed": 0}

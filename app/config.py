@@ -97,9 +97,9 @@ MAIL_DELAY = int(os.getenv("MAIL_DELAY", "15"))
 MIN_SCAN_INTERVAL_SECONDS = int(os.getenv("MIN_SCAN_INTERVAL_SECONDS", "300"))
 
 # ==========================================================
-# Daily send cap - combined across the WhatsApp-scan pipeline and the
-# uploaded-sheet pipeline (both funnel through send_pending_emails, see
-# app/mailer.py), and the upload endpoint's max file size (app/api.py).
+# Daily send cap - applies only to the uploaded-sheet pipeline (see
+# app/mailer.py's send_pending_emails); WhatsApp-scanned leads are sent
+# uncapped. Also the upload endpoint's max file size (app/api.py).
 # ==========================================================
 
 DAILY_SEND_CAP = int(os.getenv("DAILY_SEND_CAP", "250"))

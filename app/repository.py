@@ -231,13 +231,15 @@ def insert_jobs(user_id: str, jobs: list[dict], source: str = "whatsapp") -> int
     return len(res.data or [])
 
 
-def list_pending_job_emails(user_id: str, limit: Optional[int] = None) -> list[dict]:
+def list_pending_job_emails(
+    user_id: str, source: Optional[str] = None, limit: Optional[int] = None
+) -> list[dict]:
     """
-    FIFO by created_at - matters now that a shared daily send cap means
-    not every call necessarily drains every pending row (see
-    app/mailer.py): the oldest lead from either pipeline goes out
-    first, so neither pipeline can starve the other via insertion-order
-    timing.
+    FIFO by created_at - matters for the upload pipeline specifically,
+    since its daily send cap (see app/mailer.py) means an upload's
+    pending rows aren't always fully drained in one call: the oldest
+    uploaded lead goes out first. WhatsApp-sourced rows are uncapped and
+    always fetched in full (source="whatsapp", no limit).
     """
 
     query = (
@@ -249,33 +251,40 @@ def list_pending_job_emails(user_id: str, limit: Optional[int] = None) -> list[d
         .order("created_at")
     )
 
+    if source is not None:
+        query = query.eq("source", source)
+
     if limit is not None:
         query = query.limit(limit)
 
     return query.execute().data
 
 
-def count_sent_today(user_id: str) -> int:
+def count_sent_today(user_id: str, source: Optional[str] = None) -> int:
     """
-    Emails sent since the start of the current UTC calendar day - the
-    combined daily send cap enforced in app/mailer.py checks this
-    across both the WhatsApp scan and upload pipelines together, since
-    both funnel through the same jobs table and send_pending_emails().
+    Emails sent since the start of the current UTC calendar day. The
+    daily send cap enforced in app/mailer.py applies only to the
+    uploaded-sheet pipeline (source="upload") - WhatsApp-scanned leads
+    are uncapped - so callers pass source="upload" to check that budget.
     """
 
     start_of_day = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ).isoformat()
 
-    res = (
+    query = (
         get_service_client()
         .table("jobs")
         .select("id", count="exact")
         .eq("user_id", user_id)
         .eq("mail_status", "Sent")
         .gte("sent_at", start_of_day)
-        .execute()
     )
+
+    if source is not None:
+        query = query.eq("source", source)
+
+    res = query.execute()
     return res.count or 0
 
 
