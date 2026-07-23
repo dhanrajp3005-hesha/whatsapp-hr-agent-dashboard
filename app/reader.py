@@ -109,51 +109,63 @@ def scroll_up(page: Page) -> bool:
     """
     Scrolls the open chat's message pane to the top to trigger WhatsApp
     Web's lazy-loading of older messages, then reports whether new
-    content actually appeared. Returns False once the pane's
-    scrollHeight stops growing - the real top of the conversation's
-    history - so collect_messages() knows when to stop.
+    content actually appeared. Retries with increasingly long waits
+    before concluding there's truly no more history - a single
+    no-growth reading isn't reliable on its own (confirmed live: the
+    exact same scroll that reported no growth after 1.5s reliably
+    grows given more time - WhatsApp's lazy-load timing varies, and a
+    transient hiccup looks identical to genuinely reaching the top).
     """
 
     try:
-        result = page.evaluate("""
-        async () => {
-            const main = document.querySelector("#main");
-            if (!main) return { ok: false, reason: "main not found" };
+        for wait_ms in (1500, 3000, 5000):
+            result = page.evaluate(
+                """
+            async (waitMs) => {
+                const main = document.querySelector("#main");
+                if (!main) return { ok: false, reason: "main not found" };
 
-            let target = null;
-            for (const el of main.querySelectorAll("*")) {
-                if (el.scrollHeight > el.clientHeight + 100) {
-                    const style = getComputedStyle(el);
-                    if (style.overflowY === "auto" || style.overflowY === "scroll") {
-                        target = el;
-                        break;
+                let target = null;
+                for (const el of main.querySelectorAll("*")) {
+                    if (el.scrollHeight > el.clientHeight + 100) {
+                        const style = getComputedStyle(el);
+                        if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                            target = el;
+                            break;
+                        }
                     }
                 }
+
+                if (!target) return { ok: false, reason: "no scrollable pane found" };
+
+                const before = target.scrollHeight;
+                target.scrollTop = 0;
+
+                await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+                return {
+                    ok: true,
+                    grew: target.scrollHeight > before,
+                    before: before,
+                    after: target.scrollHeight,
+                };
             }
+            """,
+                wait_ms,
+            )
 
-            if (!target) return { ok: false, reason: "no scrollable pane found" };
+            if not result.get("ok"):
+                logger.warning("Unable to scroll : %s", result.get("reason"))
+                return False
 
-            const before = target.scrollHeight;
-            target.scrollTop = 0;
+            if result.get("grew"):
+                logger.info("scroll_up result : %s (wait=%sms)", result, wait_ms)
+                return True
 
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+            logger.info("No growth after %sms - retrying with a longer wait...", wait_ms)
 
-            return {
-                ok: true,
-                grew: target.scrollHeight > before,
-                before: before,
-                after: target.scrollHeight,
-            };
-        }
-        """)
-
-        logger.info("scroll_up result : %s", result)
-
-        if not result.get("ok"):
-            logger.warning("Unable to scroll : %s", result.get("reason"))
-            return False
-
-        return bool(result.get("grew"))
+        logger.info("No growth after retries - reached the top of history.")
+        return False
 
     except Exception as e:
 

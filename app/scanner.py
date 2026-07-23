@@ -68,19 +68,34 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
             else:
                 logger.info("No previous checkpoint found.")
 
-            messages = collect_messages(page, last_hash)
+            messages, checkpoint_was_found = collect_messages(page, last_hash)
             logger.info("Messages Read : %s", len(messages))
 
-            new_messages = []
-            found = last_hash == ""
+            if checkpoint_was_found:
+                new_messages = []
+                found = last_hash == ""
 
-            for message in messages:
-                current_hash = calculate_hash(message)
+                for message in messages:
+                    current_hash = calculate_hash(message)
 
-                if found:
-                    new_messages.append(message)
-                elif current_hash == last_hash:
-                    found = True
+                    if found:
+                        new_messages.append(message)
+                    elif current_hash == last_hash:
+                        found = True
+            else:
+                # Checkpoint genuinely couldn't be located (a very
+                # high-volume chat outpacing MAX_SCROLLS, or the scroll
+                # stalled before reaching it) - silently treating this
+                # as "zero new messages" would drop real content.
+                # Process everything collected instead; insert_jobs'
+                # unique (user_id, email) constraint makes
+                # re-processing an already-seen email a safe no-op.
+                logger.warning(
+                    "Checkpoint not found for user %s - falling back to "
+                    "processing all %s collected messages.",
+                    user_id, len(messages),
+                )
+                new_messages = messages
 
             logger.info("New Messages : %s", len(new_messages))
 
