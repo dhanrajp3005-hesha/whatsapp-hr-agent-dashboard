@@ -45,12 +45,13 @@ RESUME_BUCKET = "resumes"
 # App secrets
 # ==========================================================
 
-# Fernet key used to encrypt/decrypt each user's SMTP password at rest.
+# Fernet key used to encrypt/decrypt each user's SMTP password at rest,
+# and (see app/auth.py) to encrypt the session cookie holding their
+# Supabase access/refresh tokens - same key, same property needed both
+# places: opaque ciphertext at rest, not just a tamper-evident signature.
 # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 APP_ENCRYPTION_KEY = os.getenv("APP_ENCRYPTION_KEY", "")
 
-# Signs the session cookie set after a successful Supabase Auth login.
-SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 SESSION_COOKIE_NAME = "session"
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30  # 30 days
 

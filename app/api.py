@@ -17,6 +17,41 @@ from app.models import CommunitySelectIn, MailContentIn, SessionIn, SmtpSettings
 app = FastAPI(title="WhatsApp HR Agent Dashboard")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+# ==========================================================
+# Security headers
+# ==========================================================
+# CSP allows exactly the three CDN scripts the templates load
+# (Tailwind, HTMX, supabase-js) plus 'unsafe-inline' for our own
+# inline <script> blocks (all use addEventListener, not inline
+# onclick= attributes - confirmed, but CSP's script-src covers both the
+# same way, so this is the honest tradeoff without a template-wide
+# nonce refactor). connect-src allows the Supabase project directly,
+# since supabase-js in the browser calls it straight from the client
+# for login/signup, never through our own backend.
+
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self' https://*.supabase.co; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = _CSP
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
 
 def _onboarding_step(settings: Optional[dict]) -> str:
     settings = settings or {}

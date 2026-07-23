@@ -1,10 +1,12 @@
+import json
 from dataclasses import dataclass
 from typing import Optional
 
+from cryptography.fernet import InvalidToken
 from fastapi import Request, Response, HTTPException, status
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
-from app.config import SESSION_SECRET, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS
+from app.config import SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS
+from app.crypto import get_fernet
 from app.db import get_anon_client
 from app.logger import logger
 
@@ -15,15 +17,19 @@ class CurrentUser:
     email: Optional[str] = None
 
 
-def _serializer() -> URLSafeTimedSerializer:
-    if not SESSION_SECRET:
-        raise RuntimeError("SESSION_SECRET is not set. Check your .env file.")
-    return URLSafeTimedSerializer(SESSION_SECRET, salt="whatsapp-hr-agent-session")
-
-
 def create_session_cookie(response: Response, access_token: str, refresh_token: str) -> None:
-    payload = {"access_token": access_token, "refresh_token": refresh_token}
-    token = _serializer().dumps(payload)
+    """
+    The cookie is Fernet-encrypted, not just signed: it holds the raw
+    Supabase access/refresh tokens, and encryption (not just a
+    signature) means opening DevTools -> Application -> Cookies on
+    this cookie shows only an opaque ciphertext blob, not the tokens
+    themselves - Fernet's AES128-CBC + HMAC-SHA256 gives both
+    confidentiality and tamper-evidence in one primitive, so no
+    separate signing step is needed.
+    """
+
+    payload = json.dumps({"access_token": access_token, "refresh_token": refresh_token})
+    token = get_fernet().encrypt(payload.encode()).decode()
 
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
@@ -46,8 +52,9 @@ def _read_session_cookie(request: Request) -> Optional[dict]:
         return None
 
     try:
-        return _serializer().loads(raw, max_age=SESSION_MAX_AGE_SECONDS)
-    except (BadSignature, SignatureExpired):
+        payload = get_fernet().decrypt(raw.encode(), ttl=SESSION_MAX_AGE_SECONDS)
+        return json.loads(payload)
+    except (InvalidToken, ValueError):
         return None
 
 
@@ -81,7 +88,7 @@ def get_current_user(request: Request) -> CurrentUser:
     """
     FastAPI dependency resolving the authenticated user for a request.
     Checks the Authorization header first (JSON/API clients), then falls
-    back to the signed session cookie set after browser login. Raises
+    back to the encrypted session cookie set after browser login. Raises
     401 if neither is present or valid - callers use this to gate every
     dashboard/API route.
     """

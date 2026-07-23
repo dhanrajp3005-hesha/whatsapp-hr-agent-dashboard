@@ -13,8 +13,9 @@ venv/
 # VS Code
 .vscode/
 
-# Logs
-logs/*.log
+# Logs (TimedRotatingFileHandler names rotated backups app.log.YYYY-MM-DD,
+# which logs/*.log alone wouldn't match)
+logs/*.log*
 
 # Browser Data (per-user WhatsApp sessions live here, on the worker host only)
 browser_data/

@@ -115,8 +115,7 @@ Supabase.
 | Auth | Supabase Auth | Email/password + JWT sessions without rolling my own |
 | Storage | Supabase Storage | Private per-user resume PDFs |
 | Browser automation | Playwright | Headless Chromium driving WhatsApp Web |
-| Secrets | `cryptography` (Fernet) | Symmetric encryption for stored SMTP passwords |
-| Sessions | `itsdangerous` | Signed session cookies |
+| Secrets | `cryptography` (Fernet) | Encrypts SMTP passwords at rest and the session cookie - one key, one primitive, both places |
 | Worker coordination | Postgres table as a queue | Simplest thing that works across two independent processes |
 
 ## Setup
@@ -146,11 +145,10 @@ cp .env.example .env
 ```
 
 Open `.env` and fill in the three Supabase values from step 1, plus
-generate two local secrets:
+generate one local secret:
 
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"   # → APP_ENCRYPTION_KEY
-python -c "import secrets; print(secrets.token_urlsafe(32))"                                 # → SESSION_SECRET
 ```
 
 ### 3. Install dependencies
@@ -207,8 +205,7 @@ Variables**:
 | `SUPABASE_URL` | yes |
 | `SUPABASE_ANON_KEY` | yes |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes |
-| `SESSION_SECRET` | yes |
-| `APP_ENCRYPTION_KEY` | yes - **copy the exact value from your local `.env`, don't regenerate.** It's already encrypting real users' stored SMTP passwords via Fernet; a different key makes every existing encrypted password permanently undecryptable. |
+| `APP_ENCRYPTION_KEY` | yes - **copy the exact value from your local `.env`, don't regenerate.** It's already encrypting real users' stored SMTP passwords *and* every active session cookie via Fernet; a different key makes existing encrypted passwords permanently undecryptable and logs everyone out. |
 | `MIN_SCAN_INTERVAL_SECONDS` | optional, has a default |
 
 `WHATSAPP_HEADLESS`, `WORKER_POLL_INTERVAL_SECONDS`, `MAIL_SUBJECT`,
@@ -243,6 +240,13 @@ UID=<uid> --build-arg GID=<gid>` if the host user isn't 1001:1001).
 
 - SMTP passwords: Fernet-encrypted at rest, decrypted only in memory
   immediately before opening an SMTP connection.
+- Session cookie: Fernet-**encrypted**, not just signed - it holds the
+  user's raw Supabase access/refresh tokens, and encryption (vs. a
+  signature alone) means opening DevTools → Application → Cookies shows
+  only an opaque ciphertext blob, never the tokens themselves. Also
+  `httponly` (no JS/XSS access), `secure` (HTTPS only), `samesite=lax`
+  (blocks it being sent on cross-site POST requests, the main practical
+  CSRF mitigation here).
 - Service-role key: used only server-side (`app/db.py`); templates only
   ever embed the public anon key.
 - Every table has Row-Level Security enabled (`auth.uid() = user_id`),
@@ -252,6 +256,16 @@ UID=<uid> --build-arg GID=<gid>` if the host user isn't 1001:1001).
   extension.
 - Manual scans are rate-limited: one active scan per user, plus a
   minimum interval between triggers.
+- Security headers on every response (`app/api.py`): a real
+  Content-Security-Policy (scoped to exactly the CDN scripts the
+  templates load - Tailwind, HTMX, supabase-js), `X-Frame-Options: DENY`
+  and `frame-ancestors 'none'` against clickjacking, `X-Content-Type-
+  Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`.
+- No unhandled-exception detail ever reaches a response: FastAPI's
+  default handler already returns a generic error with no traceback,
+  and the one place that does echo an exception message
+  (`/api/settings/smtp/test`) only ever shows a user their own SMTP
+  server's response, not internal state.
 
 ## Known limitations
 
