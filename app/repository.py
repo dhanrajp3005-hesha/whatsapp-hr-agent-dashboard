@@ -535,6 +535,18 @@ def is_job_cancelled(job_id: str) -> bool:
     return bool(res.data and res.data.get("cancel_requested"))
 
 
+def is_upload_sending_paused(user_id: str) -> bool:
+    """
+    Live re-check used mid-batch by send_pending_emails so a "Stop
+    sending" click can interrupt an already-running upload-sourced
+    batch even when it has no worker_jobs row to poll cancel_requested
+    on (e.g. the inline call scanner.py makes after every scan).
+    """
+
+    settings = get_user_settings(user_id)
+    return bool(settings and settings.get("upload_sending_paused"))
+
+
 def set_upload_sending_paused(user_id: str, paused: bool) -> dict:
     ensure_user_settings(user_id)
     res = (

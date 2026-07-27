@@ -93,6 +93,7 @@ def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
     # WhatsApp-scanned leads are sent uncapped, per the user's request
     # that the sheet upload feature not throttle WhatsApp scanning.
     pending = repository.list_pending_job_emails(user_id, source="whatsapp")
+    upload_start_index = len(pending)
 
     upload_paused = settings.get("upload_sending_paused", False)
     if upload_paused:
@@ -142,6 +143,25 @@ def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
                 repository.log_activity(
                     user_id, "send_cancelled",
                     f"Stopped after {success} sent - {len(pending) - index} email(s) left pending.",
+                )
+                break
+
+            # Re-check the live pause flag once we reach the uploaded-sheet
+            # portion of this batch, so a "Stop sending" click can interrupt
+            # a batch already in flight - including one started inline by
+            # scanner.py after a WhatsApp scan, which has no job_id/
+            # cancel_requested to poll. WhatsApp-sourced rows (earlier in
+            # `pending`) are never subject to this check - they stay uncapped.
+            if index >= upload_start_index and repository.is_upload_sending_paused(user_id):
+                cancelled = True
+                logger.info(
+                    "send_pending_emails: upload sending paused mid-batch for user %s after %s of %s",
+                    user_id, index, len(pending),
+                )
+                repository.log_activity(
+                    user_id, "send_cancelled",
+                    f"Uploaded-sheet sending stopped - {success} sent this batch, "
+                    f"{len(pending) - index} email(s) left pending.",
                 )
                 break
 
