@@ -106,6 +106,16 @@ DAILY_SEND_CAP = int(os.getenv("DAILY_SEND_CAP", "250"))
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
 
 # ==========================================================
+# SMTP reputation protection (see app/mailer.py's send_pending_emails):
+# a run of connection-level/4xx failures in a row usually means Gmail is
+# throttling or flagging the account, not that this batch of addresses
+# happens to be bad. Stop early rather than hammering through the rest
+# of a pending list while that's happening.
+# ==========================================================
+
+MAX_CONSECUTIVE_TRANSIENT_FAILURES = int(os.getenv("MAX_CONSECUTIVE_TRANSIENT_FAILURES", "5"))
+
+# ==========================================================
 # Worker polling
 # ==========================================================
 

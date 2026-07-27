@@ -1,5 +1,6 @@
 import re
 import smtplib
+import socket
 import ssl
 import time
 from email import encoders
@@ -9,15 +10,50 @@ from email.mime.text import MIMEText
 from typing import Optional
 
 from app import repository
-from app.config import MAIL_TEMPLATE, MAIL_SUBJECT, MAIL_DELAY, RESUME_BUCKET, DAILY_SEND_CAP
+from app.config import (
+    MAIL_TEMPLATE,
+    MAIL_SUBJECT,
+    MAIL_DELAY,
+    RESUME_BUCKET,
+    DAILY_SEND_CAP,
+    MAX_CONSECUTIVE_TRANSIENT_FAILURES,
+)
 from app.db import get_service_client
 from app.logger import logger
 
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
+_TRANSIENT_SMTP_EXCEPTIONS = (
+    smtplib.SMTPServerDisconnected,
+    smtplib.SMTPConnectError,
+    ConnectionError,
+    socket.timeout,
+    TimeoutError,
+)
+
 
 def is_valid_email(email: str) -> bool:
     return bool(EMAIL_REGEX.match(email))
+
+
+def _is_transient_smtp_failure(exc: Exception) -> bool:
+    """
+    Distinguishes "this one address is bad" (permanent - normal list
+    decay, safe to mark Failed) from "the mail server itself is
+    rejecting or unreachable" (transient - likely Gmail throttling or
+    flagging the account, not a fact about this recipient). Unknown
+    exception types default to transient: losing a real lead to an
+    unexpected bug is worse than retrying it once more on the next run.
+    """
+
+    if isinstance(exc, _TRANSIENT_SMTP_EXCEPTIONS):
+        return True
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        codes = [code for code, _ in exc.recipients.values()]
+        return any(code < 500 for code in codes)
+    if isinstance(exc, smtplib.SMTPResponseException):
+        return exc.smtp_code < 500
+    return True
 
 
 def _download_resume(resume_storage_path: str) -> bytes:
@@ -126,6 +162,7 @@ def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
     context = ssl.create_default_context()
     success = 0
     failed = 0
+    consecutive_transient_failures = 0
 
     smtp = smtplib.SMTP(smtp_settings["smtp_host"], smtp_settings["smtp_port"], timeout=30)
     try:
@@ -191,15 +228,44 @@ def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
                 repository.mark_job_sent(user_id, job["id"])
                 repository.log_activity(user_id, "email_sent", email)
                 success += 1
+                consecutive_transient_failures = 0
                 logger.info("Sent to %s (user %s)", email, user_id)
 
                 time.sleep(MAIL_DELAY)
 
-            except Exception:
-                repository.mark_job_failed(user_id, job["id"])
-                repository.log_activity(user_id, "email_failed", email)
+            except Exception as exc:
                 failed += 1
-                logger.exception("Failed to send to %s (user %s)", email, user_id)
+
+                if _is_transient_smtp_failure(exc):
+                    # Left as Pending (not marked Failed) - the mail server
+                    # itself is the problem, not this address, so it's
+                    # worth retrying on the next run rather than discarding
+                    # a real lead.
+                    consecutive_transient_failures += 1
+                    logger.exception(
+                        "Transient failure sending to %s (user %s) - left pending for retry (%s consecutive)",
+                        email, user_id, consecutive_transient_failures,
+                    )
+                else:
+                    repository.mark_job_failed(user_id, job["id"])
+                    repository.log_activity(user_id, "email_failed", email)
+                    consecutive_transient_failures = 0
+                    logger.exception("Permanently failed to send to %s (user %s)", email, user_id)
+
+                if consecutive_transient_failures >= MAX_CONSECUTIVE_TRANSIENT_FAILURES:
+                    cancelled = True
+                    logger.error(
+                        "send_pending_emails: %s consecutive transient failures - stopping early "
+                        "for user %s (likely SMTP throttling, not bad addresses)",
+                        consecutive_transient_failures, user_id,
+                    )
+                    repository.log_activity(
+                        user_id, "error",
+                        f"Stopped sending after {consecutive_transient_failures} consecutive SMTP "
+                        f"failures in a row - possible throttling or account issue, not bad addresses. "
+                        f"{success} sent this batch, {len(pending) - index - 1} email(s) left pending.",
+                    )
+                    break
     finally:
         smtp.quit()
 
