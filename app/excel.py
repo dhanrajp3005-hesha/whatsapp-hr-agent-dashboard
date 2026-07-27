@@ -23,13 +23,9 @@ HEADERS = [
 ]
 
 
-def export_jobs_xlsx(user_id: str) -> BytesIO:
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Jobs"
+def _write_sheet(sheet, jobs: list[dict]) -> None:
     sheet.append(HEADERS)
-
-    for job in repository.list_all_jobs(user_id):
+    for job in jobs:
         sheet.append(
             [
                 job.get("created_at"),
@@ -42,6 +38,17 @@ def export_jobs_xlsx(user_id: str) -> BytesIO:
                 job.get("mail_status"),
             ]
         )
+
+
+def export_jobs_xlsx(user_id: str) -> BytesIO:
+    all_jobs = repository.list_all_jobs(user_id)
+    whatsapp_jobs = [job for job in all_jobs if job.get("source") == "whatsapp"]
+    upload_jobs = [job for job in all_jobs if job.get("source") == "upload"]
+
+    workbook = Workbook()
+    workbook.active.title = "WhatsApp Scanned"
+    _write_sheet(workbook.active, whatsapp_jobs)
+    _write_sheet(workbook.create_sheet("Uploaded Sheet"), upload_jobs)
 
     buffer = BytesIO()
     workbook.save(buffer)
