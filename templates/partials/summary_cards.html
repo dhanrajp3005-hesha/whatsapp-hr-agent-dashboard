@@ -17,6 +17,27 @@
   </div>
 </div>
 
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+  <div class="bg-white border rounded-xl p-4">
+    <p class="text-xs text-gray-500">WhatsApp scanned</p>
+    <p class="text-2xl font-semibold">{{ summary.whatsapp_total }}</p>
+    <p class="text-xs text-gray-500 mt-1">
+      <span class="text-emerald-600 font-medium">{{ summary.whatsapp_sent }} sent</span> ·
+      <span class="text-amber-600 font-medium">{{ summary.whatsapp_pending }} pending</span> ·
+      <span class="text-red-600 font-medium">{{ summary.whatsapp_failed }} failed</span>
+    </p>
+  </div>
+  <div class="bg-white border rounded-xl p-4">
+    <p class="text-xs text-gray-500">Uploaded sheet</p>
+    <p class="text-2xl font-semibold">{{ summary.upload_total }}</p>
+    <p class="text-xs text-gray-500 mt-1">
+      <span class="text-emerald-600 font-medium">{{ summary.upload_sent }} sent</span> ·
+      <span class="text-amber-600 font-medium">{{ summary.upload_pending }} pending</span> ·
+      <span class="text-red-600 font-medium">{{ summary.upload_failed }} failed</span>
+    </p>
+  </div>
+</div>
+
 <div class="flex flex-wrap gap-2 mt-4">
   <span class="text-xs px-3 py-1 rounded-full {{ 'bg-emerald-100 text-emerald-700' if summary.whatsapp_status == 'connected' else 'bg-gray-200 text-gray-600' }}">
     WhatsApp: {{ summary.whatsapp_status }}

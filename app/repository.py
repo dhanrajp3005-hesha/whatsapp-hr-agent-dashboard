@@ -392,17 +392,34 @@ def list_all_jobs(user_id: str) -> list[dict]:
 def job_counts(user_id: str) -> dict:
     client = get_service_client()
 
-    def count_for(status: Optional[str]) -> int:
+    def count_for(status: Optional[str] = None, source: Optional[str] = None) -> int:
         query = client.table("jobs").select("id", count="exact").eq("user_id", user_id)
         if status:
             query = query.eq("mail_status", status)
+        if source:
+            query = query.eq("source", source)
         return query.execute().count or 0
 
+    whatsapp_sent = count_for("Sent", "whatsapp")
+    whatsapp_pending = count_for("Pending", "whatsapp")
+    whatsapp_failed = count_for("Failed", "whatsapp")
+    upload_sent = count_for("Sent", "upload")
+    upload_pending = count_for("Pending", "upload")
+    upload_failed = count_for("Failed", "upload")
+
     return {
-        "total": count_for(None),
+        "total": count_for(),
         "sent": count_for("Sent"),
         "pending": count_for("Pending"),
         "failed": count_for("Failed"),
+        "whatsapp_sent": whatsapp_sent,
+        "whatsapp_pending": whatsapp_pending,
+        "whatsapp_failed": whatsapp_failed,
+        "whatsapp_total": whatsapp_sent + whatsapp_pending + whatsapp_failed,
+        "upload_sent": upload_sent,
+        "upload_pending": upload_pending,
+        "upload_failed": upload_failed,
+        "upload_total": upload_sent + upload_pending + upload_failed,
     }
 
 
