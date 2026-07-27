@@ -3,78 +3,124 @@
 {% block body %}
 {% include "partials/_nav.html" %}
 
-<div class="max-w-2xl mx-auto px-4 py-8 space-y-6">
-  <div class="bg-white border rounded-xl p-6">
-    <h2 class="font-semibold mb-3">SMTP credentials</h2>
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Settings</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Manage your email, resume, WhatsApp connection, and outreach content.</p>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-2xl p-6">
+    <div class="flex items-center gap-2.5 mb-4">
+      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="m3 7 9 6 9-6" />
+        </svg>
+      </span>
+      <h2 class="font-semibold text-slate-800">SMTP credentials</h2>
+    </div>
     <form id="smtp-form" class="space-y-3">
       <div class="grid grid-cols-2 gap-3">
-        <input name="smtp_host" placeholder="SMTP host" value="{{ settings.smtp_host or '' }}" required class="border rounded-lg px-3 py-2 text-sm" />
-        <input name="smtp_port" type="number" placeholder="Port" value="{{ settings.smtp_port or '' }}" required class="border rounded-lg px-3 py-2 text-sm" />
+        <input name="smtp_host" placeholder="SMTP host" value="{{ settings.smtp_host or '' }}" required class="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
+        <input name="smtp_port" type="number" placeholder="Port" value="{{ settings.smtp_port or '' }}" required class="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
       </div>
-      <input name="smtp_username" placeholder="SMTP username" value="{{ settings.smtp_username or '' }}" required class="w-full border rounded-lg px-3 py-2 text-sm" />
-      <input name="smtp_password" type="password" placeholder="App password (re-enter to change)" required class="w-full border rounded-lg px-3 py-2 text-sm" />
-      <input name="from_email" type="email" placeholder="From email" value="{{ settings.from_email or '' }}" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+      <input name="smtp_username" placeholder="SMTP username" value="{{ settings.smtp_username or '' }}" required class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
+      <input name="smtp_password" type="password" placeholder="App password (re-enter to change)" required class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
+      <input name="from_email" type="email" placeholder="From email" value="{{ settings.from_email or '' }}" required class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
       <p id="smtp-error" class="text-sm text-red-600 hidden"></p>
       <p id="smtp-ok" class="text-sm text-emerald-700 hidden">Saved.</p>
-      <div class="flex gap-2">
-        <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
-        <button type="button" id="test-email-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Send test email</button>
+      <div class="flex gap-2 pt-1">
+        <button type="submit" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">Save</button>
+        <button type="button" id="test-email-btn" class="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 transition-colors">Send test email</button>
       </div>
     </form>
   </div>
 
-  <div class="bg-white border rounded-xl p-6">
-    <h2 class="font-semibold mb-3">Resume</h2>
-    <p class="text-sm text-gray-500 mb-2">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6">
+    <div class="flex items-center gap-2.5 mb-4">
+      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+          <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" />
+        </svg>
+      </span>
+      <h2 class="font-semibold text-slate-800">Resume</h2>
+    </div>
+    <p class="text-sm text-slate-500 mb-3">
       {{ "A resume is on file." if settings.resume_storage_path else "No resume uploaded yet." }}
     </p>
     <form id="resume-form" class="space-y-3">
-      <input name="resume" type="file" accept="application/pdf" required class="text-sm" />
+      <input name="resume" type="file" accept="application/pdf" required
+        class="text-sm text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 file:transition-colors" />
       <p id="resume-error" class="text-sm text-red-600 hidden"></p>
       <p id="resume-ok" class="text-sm text-emerald-700 hidden">Uploaded.</p>
-      <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Upload PDF</button>
+      <button type="submit" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">Upload PDF</button>
     </form>
   </div>
 
-  <div class="bg-white border rounded-xl p-6 space-y-3">
-    <h2 class="font-semibold">Email content</h2>
-    <p class="text-sm text-gray-500">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+    <div class="flex items-center gap-2.5">
+      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <path d="M4 6h16M4 12h16M4 18h10" />
+        </svg>
+      </span>
+      <h2 class="font-semibold text-slate-800">Email content</h2>
+    </div>
+    <p class="text-sm text-slate-500">
       Customize the subject and message sent with your resume. Leave blank to use the default cover message.
     </p>
     <form id="mail-content-form" class="space-y-3">
       <div>
-        <label class="block text-sm font-medium mb-1">Subject</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1.5">Subject</label>
         <input name="subject" placeholder="Application for AWS DevOps Engineer | 5 Years Experience"
-          value="{{ settings.mail_subject or '' }}" class="w-full border rounded-lg px-3 py-2 text-sm" />
+          value="{{ settings.mail_subject or '' }}" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
       </div>
       <div>
-        <label class="block text-sm font-medium mb-1">Body</label>
+        <label class="block text-sm font-medium text-slate-700 mb-1.5">Body</label>
         <textarea name="body" rows="8" placeholder="Leave blank to use the default message..."
-          class="w-full border rounded-lg px-3 py-2 text-sm font-mono">{{ settings.mail_body or '' }}</textarea>
-        <p class="text-xs text-gray-400 mt-1">Plain text, or paste HTML for formatting - either works.</p>
+          class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow">{{ settings.mail_body or '' }}</textarea>
+        <p class="text-xs text-slate-400 mt-1.5">Plain text, or paste HTML for formatting - either works.</p>
       </div>
       <p id="mail-content-error" class="text-sm text-red-600 hidden"></p>
       <p id="mail-content-ok" class="text-sm text-emerald-700 hidden">Saved.</p>
-      <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
+      <button type="submit" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">Save</button>
     </form>
   </div>
 
-  <div class="bg-white border rounded-xl p-6 space-y-3">
-    <h2 class="font-semibold">WhatsApp connection</h2>
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+    <div class="flex items-center gap-2.5">
+      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.1-3.9A8.5 8.5 0 1 1 21 11.5Z" />
+        </svg>
+      </span>
+      <h2 class="font-semibold text-slate-800">WhatsApp connection</h2>
+    </div>
     <div id="wa-status" hx-get="/partials/whatsapp-status" hx-trigger="load, every 10s" hx-swap="innerHTML"></div>
     <div class="flex gap-2">
-      <button id="reconnect-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Reconnect</button>
-      <button id="disconnect-btn" class="border rounded-lg px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Disconnect</button>
+      <button id="reconnect-btn" class="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 transition-colors">Reconnect</button>
+      <button id="disconnect-btn" class="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors">Disconnect</button>
     </div>
-    <p id="wa-msg" class="text-sm text-gray-500"></p>
+    <p id="wa-msg" class="text-sm text-slate-500"></p>
   </div>
 
-  <div class="bg-white border rounded-xl p-6 space-y-3">
-    <h2 class="font-semibold">Community / group</h2>
-    <select id="community-select" class="w-full border rounded-lg px-3 py-2 text-sm">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+    <div class="flex items-center gap-2.5">
+      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <path d="M17 20h5v-1a4 4 0 0 0-3-3.87" />
+          <path d="M9 20H4v-1a4 4 0 0 1 3-3.87" />
+          <circle cx="9" cy="7" r="4" />
+          <circle cx="17" cy="9" r="3" />
+        </svg>
+      </span>
+      <h2 class="font-semibold text-slate-800">Community / group</h2>
+    </div>
+    <select id="community-select" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white">
       <option value="">Loading...</option>
     </select>
-    <button id="community-save" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
+    <button id="community-save" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">Save</button>
   </div>
 </div>
 

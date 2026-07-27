@@ -3,38 +3,72 @@
 {% block body %}
 {% include "partials/_nav.html" %}
 
-<div class="max-w-5xl mx-auto px-4 py-8 space-y-8">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Live overview of your WhatsApp-scanned and uploaded-sheet outreach.</p>
+  </div>
+
   <div id="summary-cards" hx-get="/partials/summary-cards" hx-trigger="load, every 15s" hx-swap="innerHTML">
     {% include "partials/summary_cards.html" %}
   </div>
 
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <button id="scan-btn" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">
-        Scan now
-      </button>
-      <span id="scan-status" class="text-sm text-gray-500"></span>
+  <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-slate-700">Quick actions</h2>
+      <a href="/api/jobs/export" class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <path d="M7 10l5 5 5-5" />
+          <path d="M12 15V3" />
+        </svg>
+        Download Excel
+      </a>
     </div>
-    <a href="/api/jobs/export" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
-      Download Excel
-    </a>
-  </div>
 
-  <div class="flex items-center justify-between">
-    <form id="upload-form" class="flex items-center gap-2">
-      <input id="upload-file" name="file" type="file" accept=".csv,.xlsx,.pdf" required class="text-sm" />
-      <button type="submit" id="upload-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
-        Upload sheet
+    <div class="flex flex-wrap items-center gap-3">
+      <button id="scan-btn" class="inline-flex items-center gap-2 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md hover:shadow-brand-600/40 transition-all disabled:opacity-60">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          <path d="M3 21v-5h5" />
+        </svg>
+        <span class="btn-label">Scan now</span>
       </button>
+      <span id="scan-status" class="text-sm text-slate-500"></span>
+    </div>
+
+    <div class="h-px bg-slate-100"></div>
+
+    <form id="upload-form" class="flex flex-wrap items-center gap-3">
+      <input id="upload-file" name="file" type="file" accept=".csv,.xlsx,.pdf" required
+        class="text-sm text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 file:transition-colors" />
+      <button type="submit" id="upload-btn" class="inline-flex items-center gap-2 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-60">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <path d="M17 8l-5-5-5 5" />
+          <path d="M12 3v12" />
+        </svg>
+        <span class="btn-label">Upload sheet</span>
+      </button>
+      <span id="upload-status" class="text-sm text-slate-500"></span>
     </form>
-    <span id="upload-status" class="text-sm text-gray-500"></span>
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <div class="lg:col-span-2 bg-white border rounded-xl p-4">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-4 sm:p-5">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold">Jobs</h2>
-        <select id="status-filter" class="border rounded-lg px-2 py-1 text-sm">
+        <div class="flex items-center gap-2">
+          <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+              <rect x="3" y="7" width="18" height="13" rx="2" />
+              <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+          </span>
+          <h2 class="font-semibold text-slate-800">Jobs</h2>
+        </div>
+        <select id="status-filter" class="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 bg-white">
           <option value="">All</option>
           <option value="Pending">Pending</option>
           <option value="Sent">Sent</option>
@@ -44,8 +78,16 @@
       <div id="jobs-table" hx-get="/partials/jobs-table" hx-trigger="load" hx-swap="innerHTML"></div>
     </div>
 
-    <div class="bg-white border rounded-xl p-4">
-      <h2 class="font-semibold mb-3">Recent activity</h2>
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 3" />
+          </svg>
+        </span>
+        <h2 class="font-semibold text-slate-800">Recent activity</h2>
+      </div>
       <div id="activity-feed" hx-get="/partials/activity-feed" hx-trigger="load, every 15s" hx-swap="innerHTML"></div>
     </div>
   </div>
@@ -63,8 +105,9 @@
     const btn = document.getElementById("scan-btn");
     const statusEl = document.getElementById("scan-status");
 
+    const label = btn.querySelector(".btn-label");
     btn.disabled = true;
-    btn.textContent = "Scanning...";
+    label.textContent = "Scanning...";
     statusEl.textContent = "";
 
     try {
@@ -78,7 +121,7 @@
       }
     } finally {
       btn.disabled = false;
-      btn.textContent = "Scan now";
+      label.textContent = "Scan now";
     }
   });
 
@@ -94,8 +137,9 @@
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
 
+    const label = btn.querySelector(".btn-label");
     btn.disabled = true;
-    btn.textContent = "Uploading...";
+    label.textContent = "Uploading...";
     statusEl.textContent = "";
 
     try {
@@ -114,7 +158,7 @@
       }
     } finally {
       btn.disabled = false;
-      btn.textContent = "Upload sheet";
+      label.textContent = "Upload sheet";
     }
   });
 </script>

@@ -3,45 +3,52 @@
 {% block body %}
 {% include "partials/_nav.html" %}
 
-<div class="max-w-2xl mx-auto px-4 py-10">
-  <ol class="flex items-center gap-2 text-sm mb-8">
-    <li class="px-3 py-1 rounded-full {{ 'bg-emerald-600 text-white' if step == 'setup' else 'bg-gray-200 text-gray-600' }}">1. Email setup</li>
-    <li class="px-3 py-1 rounded-full {{ 'bg-emerald-600 text-white' if step == 'whatsapp' else 'bg-gray-200 text-gray-600' }}">2. WhatsApp</li>
-    <li class="px-3 py-1 rounded-full {{ 'bg-emerald-600 text-white' if step == 'community' else 'bg-gray-200 text-gray-600' }}">3. Community</li>
-  </ol>
+<div class="max-w-2xl mx-auto px-4 sm:px-6 py-10">
+  <div class="flex items-center mb-10">
+    {% for key, num, label in [('setup', '1', 'Email setup'), ('whatsapp', '2', 'WhatsApp'), ('community', '3', 'Community')] %}
+    <div class="flex items-center gap-2">
+      <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-colors {{ 'bg-brand-600 text-white shadow-sm shadow-brand-600/30' if step == key else 'bg-slate-100 text-slate-400' }}">{{ num }}</span>
+      <span class="text-sm font-medium {{ 'text-slate-900' if step == key else 'text-slate-400' }} hidden sm:inline">{{ label }}</span>
+    </div>
+    {% if not loop.last %}
+    <div class="flex-1 h-px bg-slate-200 mx-3"></div>
+    {% endif %}
+    {% endfor %}
+  </div>
 
   {% if step == "setup" %}
-  <div class="bg-white border rounded-xl p-6 space-y-6">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 sm:p-7 space-y-7">
     <div>
-      <h2 class="font-semibold mb-3">SMTP credentials</h2>
+      <h2 class="font-semibold text-slate-800 mb-4">SMTP credentials</h2>
       <form id="smtp-form" class="space-y-3">
         <div class="grid grid-cols-2 gap-3">
-          <input name="smtp_host" placeholder="SMTP host (e.g. smtp.gmail.com)" required class="border rounded-lg px-3 py-2 text-sm" />
-          <input name="smtp_port" type="number" placeholder="Port (e.g. 587)" required class="border rounded-lg px-3 py-2 text-sm" />
+          <input name="smtp_host" placeholder="SMTP host (e.g. smtp.gmail.com)" required class="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
+          <input name="smtp_port" type="number" placeholder="Port (e.g. 587)" required class="border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
         </div>
-        <input name="smtp_username" placeholder="SMTP username" required class="w-full border rounded-lg px-3 py-2 text-sm" />
-        <input name="smtp_password" type="password" placeholder="App password" required class="w-full border rounded-lg px-3 py-2 text-sm" />
-        <input name="from_email" type="email" placeholder="From email" required class="w-full border rounded-lg px-3 py-2 text-sm" />
+        <input name="smtp_username" placeholder="SMTP username" required class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
+        <input name="smtp_password" type="password" placeholder="App password" required class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
+        <input name="from_email" type="email" placeholder="From email" required class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 transition-shadow" />
         <p id="smtp-error" class="text-sm text-red-600 hidden"></p>
         <p id="smtp-ok" class="text-sm text-emerald-700 hidden">Saved.</p>
-        <div class="flex gap-2">
-          <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Save</button>
-          <button type="button" id="test-email-btn" class="border rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Send test email</button>
+        <div class="flex gap-2 pt-1">
+          <button type="submit" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">Save</button>
+          <button type="button" id="test-email-btn" class="border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 transition-colors">Send test email</button>
         </div>
       </form>
     </div>
 
-    <div class="border-t pt-6">
-      <h2 class="font-semibold mb-3">Resume</h2>
+    <div class="border-t border-slate-100 pt-6">
+      <h2 class="font-semibold text-slate-800 mb-4">Resume</h2>
       <form id="resume-form" class="space-y-3">
-        <input name="resume" type="file" accept="application/pdf" required class="text-sm" />
+        <input name="resume" type="file" accept="application/pdf" required
+          class="text-sm text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 file:transition-colors" />
         <p id="resume-error" class="text-sm text-red-600 hidden"></p>
         <p id="resume-ok" class="text-sm text-emerald-700 hidden">Uploaded.</p>
-        <button type="submit" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">Upload PDF</button>
+        <button type="submit" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">Upload PDF</button>
       </form>
     </div>
 
-    <button id="continue-btn" class="w-full border rounded-lg py-2 text-sm font-medium hover:bg-gray-50">
+    <button id="continue-btn" class="w-full border border-slate-200 rounded-xl py-2.5 text-sm font-semibold hover:bg-slate-50 transition-colors">
       Continue &rarr;
     </button>
   </div>
@@ -125,17 +132,22 @@
   {% endif %}
 
   {% if step == "whatsapp" %}
-  <div class="bg-white border rounded-xl p-6 text-center space-y-4">
-    <h2 class="font-semibold">Connect WhatsApp</h2>
-    <p class="text-sm text-gray-500">Scan this QR code with WhatsApp on your phone (Linked Devices &rarr; Link a device).</p>
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 sm:p-7 text-center space-y-4">
+    <span class="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px">
+        <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.1-3.9A8.5 8.5 0 1 1 21 11.5Z" />
+      </svg>
+    </span>
+    <h2 class="font-semibold text-slate-800">Connect WhatsApp</h2>
+    <p class="text-sm text-slate-500">Scan this QR code with WhatsApp on your phone (Linked Devices &rarr; Link a device).</p>
 
     <div id="qr-wrap" class="flex justify-center">
-      <img id="qr-img" class="w-56 h-56 border rounded-lg object-contain" />
+      <img id="qr-img" class="w-56 h-56 border border-slate-200 rounded-xl object-contain p-2" />
     </div>
 
-    <p id="wa-status" class="text-sm text-gray-500">Waiting for connection...</p>
+    <p id="wa-status" class="text-sm text-slate-500">Waiting for connection...</p>
 
-    <button id="connect-btn" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">
+    <button id="connect-btn" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">
       Start connection
     </button>
   </div>
@@ -175,13 +187,13 @@
   {% endif %}
 
   {% if step == "community" %}
-  <div class="bg-white border rounded-xl p-6 space-y-4">
-    <h2 class="font-semibold">Pick a community/group to scan</h2>
-    <select id="community-select" class="w-full border rounded-lg px-3 py-2 text-sm">
+  <div class="bg-white border border-slate-200 rounded-2xl p-6 sm:p-7 space-y-4">
+    <h2 class="font-semibold text-slate-800">Pick a community/group to scan</h2>
+    <select id="community-select" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-white">
       <option value="">Loading...</option>
     </select>
     <p id="community-error" class="text-sm text-red-600 hidden"></p>
-    <button id="community-save" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-emerald-700">
+    <button id="community-save" class="bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm shadow-brand-600/30 hover:shadow-md transition-all">
       Save and finish
     </button>
   </div>

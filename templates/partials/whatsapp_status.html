@@ -1,3 +1,4 @@
-<span class="text-xs px-3 py-1 rounded-full {{ 'bg-emerald-100 text-emerald-700' if status == 'connected' else 'bg-gray-200 text-gray-600' }}">
+<span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-medium ring-1 {{ 'bg-emerald-50 text-emerald-700 ring-emerald-200' if status == 'connected' else 'bg-slate-100 text-slate-600 ring-slate-200' }}">
+  <span class="h-1.5 w-1.5 rounded-full {{ 'bg-emerald-500' if status == 'connected' else 'bg-slate-400' }}"></span>
   {{ status }}
 </span>

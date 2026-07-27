@@ -1,44 +1,50 @@
+<div class="overflow-x-auto -mx-4 px-4">
 <table class="w-full text-sm">
   <thead>
-    <tr class="text-left text-gray-500 border-b">
-      <th class="py-2">Date</th>
-      <th class="py-2">Company</th>
-      <th class="py-2">Email</th>
-      <th class="py-2">Status</th>
+    <tr class="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-200">
+      <th class="py-2 font-semibold">Date</th>
+      <th class="py-2 font-semibold">Company</th>
+      <th class="py-2 font-semibold">Email</th>
+      <th class="py-2 font-semibold">Status</th>
     </tr>
   </thead>
-  <tbody>
+  <tbody class="divide-y divide-slate-100">
     {% for job in jobs %}
-    <tr class="border-b last:border-0">
-      <td class="py-2 whitespace-nowrap">{{ job.created_at[:10] if job.created_at else "" }}</td>
-      <td class="py-2">{{ job.company or "-" }}</td>
-      <td class="py-2">{{ job.email }}</td>
-      <td class="py-2">
-        <span class="text-xs px-2 py-1 rounded-full
-          {{ 'bg-emerald-100 text-emerald-700' if job.mail_status == 'Sent'
-             else 'bg-red-100 text-red-700' if job.mail_status == 'Failed'
-             else 'bg-amber-100 text-amber-700' }}">
+    <tr class="hover:bg-slate-50 transition-colors">
+      <td class="py-2.5 whitespace-nowrap text-slate-500">{{ job.created_at[:10] if job.created_at else "" }}</td>
+      <td class="py-2.5 text-slate-600">{{ job.company or "-" }}</td>
+      <td class="py-2.5 font-medium text-slate-800">{{ job.email }}</td>
+      <td class="py-2.5">
+        <span class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium
+          {{ 'bg-emerald-50 text-emerald-700' if job.mail_status == 'Sent'
+             else 'bg-red-50 text-red-700' if job.mail_status == 'Failed'
+             else 'bg-amber-50 text-amber-700' }}">
+          <span class="h-1.5 w-1.5 rounded-full
+            {{ 'bg-emerald-500' if job.mail_status == 'Sent'
+               else 'bg-red-500' if job.mail_status == 'Failed'
+               else 'bg-amber-500' }}"></span>
           {{ job.mail_status }}
         </span>
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="py-6 text-center text-gray-400">No jobs yet.</td></tr>
+    <tr><td colspan="4" class="py-10 text-center text-slate-400">No jobs yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 {% if total_pages > 1 %}
-<div class="flex items-center justify-between mt-3 text-sm text-gray-500">
+<div class="flex items-center justify-between mt-3 text-sm text-slate-500">
   <span>Page {{ page }} of {{ total_pages }}</span>
   <div class="flex gap-2">
     {% if page > 1 %}
-    <button class="border rounded-lg px-3 py-1 hover:bg-gray-50"
+    <button class="border border-slate-200 rounded-lg px-3 py-1 hover:bg-slate-50 transition-colors"
       hx-get="/partials/jobs-table?status={{ status_filter }}&page={{ page - 1 }}"
       hx-target="#jobs-table" hx-swap="innerHTML">Previous</button>
     {% endif %}
     {% if page < total_pages %}
-    <button class="border rounded-lg px-3 py-1 hover:bg-gray-50"
+    <button class="border border-slate-200 rounded-lg px-3 py-1 hover:bg-slate-50 transition-colors"
       hx-get="/partials/jobs-table?status={{ status_filter }}&page={{ page + 1 }}"
       hx-target="#jobs-table" hx-swap="innerHTML">Next</button>
     {% endif %}
