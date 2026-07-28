@@ -6,6 +6,7 @@ from app import repository
 from app.validator import validate
 from app.waiter import wait_for_whatsapp
 from app.search import open_community
+from app.reader import scroll_to_bottom
 from app.scroll_controller import collect_messages
 from app.parser import extract_jobs
 from app.mailer import send_pending_emails
@@ -59,6 +60,12 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
 
             logger.info("Waiting for WhatsApp chat...")
             page.wait_for_timeout(4000)
+
+            if not scroll_to_bottom(page):
+                logger.warning(
+                    "Could not confirm the chat is scrolled to its newest message - "
+                    "proceeding anyway, but a checkpoint match this run is less trustworthy."
+                )
 
             checkpoint = repository.get_checkpoint(user_id)
             last_hash = (checkpoint or {}).get("last_message_hash") or ""

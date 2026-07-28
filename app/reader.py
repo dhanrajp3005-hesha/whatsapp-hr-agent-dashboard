@@ -172,3 +172,62 @@ def scroll_up(page: Page) -> bool:
         logger.exception(e)
 
         return False
+
+
+def scroll_to_bottom(page: Page) -> bool:
+    """
+    Jumps the open chat's message pane to the newest message before the
+    checkpoint search begins. WhatsApp Web doesn't reliably open a chat
+    scrolled to the bottom - a community/group with many unread
+    messages is frequently opened scrolled to the *first* unread
+    message instead, with genuinely newer messages still further down.
+    Since collect_messages only ever scrolls up (toward older history),
+    a checkpoint match found in that first, partial read would be
+    misread as "caught up" while unread messages below it - the ones
+    that actually matter - are silently never collected. Confirmed live:
+    a scan reported 0 new messages despite messages having arrived
+    hours earlier, and the very next scan (checkpoint no longer
+    reachable at all) picked up dozens of them at once.
+    """
+
+    try:
+        result = page.evaluate(
+            """
+        async () => {
+            const main = document.querySelector("#main");
+            if (!main) return { ok: false, reason: "main not found" };
+
+            let target = null;
+            for (const el of main.querySelectorAll("*")) {
+                if (el.scrollHeight > el.clientHeight + 100) {
+                    const style = getComputedStyle(el);
+                    if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                        target = el;
+                        break;
+                    }
+                }
+            }
+
+            if (!target) return { ok: false, reason: "no scrollable pane found" };
+
+            target.scrollTop = target.scrollHeight;
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            target.scrollTop = target.scrollHeight;
+
+            return { ok: true, scrollTop: target.scrollTop, scrollHeight: target.scrollHeight };
+        }
+        """
+        )
+
+        if not result.get("ok"):
+            logger.warning("scroll_to_bottom: %s", result.get("reason"))
+            return False
+
+        logger.info("scroll_to_bottom result : %s", result)
+        return True
+
+    except Exception as e:
+
+        logger.exception(e)
+
+        return False
