@@ -61,14 +61,30 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
             logger.info("Waiting for WhatsApp chat...")
             page.wait_for_timeout(4000)
 
-            if not scroll_to_bottom(page):
-                logger.warning(
-                    "Could not confirm the chat is scrolled to its newest message - "
-                    "proceeding anyway, but a checkpoint match this run is less trustworthy."
-                )
+            reached_bottom = scroll_to_bottom(page)
 
             checkpoint = repository.get_checkpoint(user_id)
             last_hash = (checkpoint or {}).get("last_message_hash") or ""
+
+            if not reached_bottom and last_hash:
+                # We can't prove the pane is at the true newest message,
+                # so a checkpoint match found without scrolling would be
+                # unverifiable - it could just as easily mean "sitting at
+                # a stale position" as "genuinely caught up". Forcing a
+                # full history re-scroll this run is slower but can't
+                # silently drop messages the way trusting that match
+                # could. insert_jobs' dedup makes reprocessing safe.
+                logger.warning(
+                    "Could not confirm the chat reached its newest message - "
+                    "ignoring the saved checkpoint for this run and doing a full re-check instead."
+                )
+                repository.log_activity(
+                    user_id, "error",
+                    "Scan could not confirm it reached the newest WhatsApp message - "
+                    "ran a full history re-check this time instead of trusting the checkpoint, "
+                    "just in case.",
+                )
+                last_hash = ""
 
             if last_hash:
                 logger.info("Last Hash Loaded : %s...", last_hash[:12])

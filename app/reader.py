@@ -26,12 +26,34 @@ def read_messages(page: Page) -> list[str]:
             len(buttons),
         )
 
+        failed = 0
+
         for button in buttons:
 
-            try:
-                button.click(timeout=1000)
-            except Exception:
-                pass
+            clicked = False
+
+            for attempt in range(2):
+                try:
+                    button.click(timeout=2000)
+                    clicked = True
+                    break
+                except Exception:
+                    pass
+
+            if not clicked:
+                failed += 1
+
+        if failed:
+            # A message left un-expanded here gets hashed in its
+            # truncated form. If a later scan expands it successfully,
+            # that same message hashes differently - permanently
+            # breaking checkpoint matching for it. Surfacing the count
+            # makes that failure mode diagnosable instead of silent.
+            logger.warning(
+                "Could not expand %s of %s 'Read more' message(s) - "
+                "their hash may be unstable across scans.",
+                failed, len(buttons),
+            )
 
     except Exception as e:
 
@@ -190,44 +212,50 @@ def scroll_to_bottom(page: Page) -> bool:
     reachable at all) picked up dozens of them at once.
     """
 
-    try:
-        result = page.evaluate(
-            """
-        async () => {
-            const main = document.querySelector("#main");
-            if (!main) return { ok: false, reason: "main not found" };
+    script = """
+    async () => {
+        const main = document.querySelector("#main");
+        if (!main) return { ok: false, reason: "main not found" };
 
-            let target = null;
-            for (const el of main.querySelectorAll("*")) {
-                if (el.scrollHeight > el.clientHeight + 100) {
-                    const style = getComputedStyle(el);
-                    if (style.overflowY === "auto" || style.overflowY === "scroll") {
-                        target = el;
-                        break;
-                    }
+        let target = null;
+        for (const el of main.querySelectorAll("*")) {
+            if (el.scrollHeight > el.clientHeight + 100) {
+                const style = getComputedStyle(el);
+                if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                    target = el;
+                    break;
                 }
             }
-
-            if (!target) return { ok: false, reason: "no scrollable pane found" };
-
-            target.scrollTop = target.scrollHeight;
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            target.scrollTop = target.scrollHeight;
-
-            return { ok: true, scrollTop: target.scrollTop, scrollHeight: target.scrollHeight };
         }
-        """
+
+        if (!target) return { ok: false, reason: "no scrollable pane found" };
+
+        target.scrollTop = target.scrollHeight;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        target.scrollTop = target.scrollHeight;
+
+        return { ok: true, scrollTop: target.scrollTop, scrollHeight: target.scrollHeight };
+    }
+    """
+
+    # The message pane sometimes isn't mounted yet the instant the chat
+    # opens - retry a couple of times rather than treating one failed
+    # detection as "pane doesn't exist" and falling back to a full,
+    # unnecessary history re-scroll.
+    for attempt in range(3):
+        try:
+            result = page.evaluate(script)
+        except Exception as e:
+            logger.warning("scroll_to_bottom attempt %s errored : %s", attempt + 1, e)
+            result = {"ok": False, "reason": str(e)}
+
+        if result.get("ok"):
+            logger.info("scroll_to_bottom result : %s", result)
+            return True
+
+        logger.warning(
+            "scroll_to_bottom attempt %s/3 failed : %s", attempt + 1, result.get("reason")
         )
+        page.wait_for_timeout(1000)
 
-        if not result.get("ok"):
-            logger.warning("scroll_to_bottom: %s", result.get("reason"))
-            return False
-
-        logger.info("scroll_to_bottom result : %s", result)
-        return True
-
-    except Exception as e:
-
-        logger.exception(e)
-
-        return False
+    return False
