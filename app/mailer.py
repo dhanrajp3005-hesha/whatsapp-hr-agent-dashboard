@@ -246,6 +246,34 @@ def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
                         "Transient failure sending to %s (user %s) - left pending for retry (%s consecutive)",
                         email, user_id, consecutive_transient_failures,
                     )
+
+                    # Gmail (and most providers) periodically drop a
+                    # long-held persistent connection on their own - after
+                    # an hour and hundreds of sends this is routine, not
+                    # necessarily throttling. Confirmed live: a batch that
+                    # had already sent 180 emails cleanly hit exactly this
+                    # and stopped rather than reconnecting. One reconnect
+                    # attempt turns a normal disconnect into a non-event;
+                    # the circuit breaker below still catches a connection
+                    # that won't come back.
+                    try:
+                        try:
+                            smtp.quit()
+                        except Exception:
+                            pass
+                        smtp = smtplib.SMTP(
+                            smtp_settings["smtp_host"], smtp_settings["smtp_port"], timeout=30
+                        )
+                        smtp.starttls(context=context)
+                        smtp.login(smtp_settings["smtp_username"], smtp_settings["smtp_password"])
+                        logger.info(
+                            "send_pending_emails: reconnected SMTP session for user %s", user_id
+                        )
+                        consecutive_transient_failures = 0
+                    except Exception:
+                        logger.exception(
+                            "send_pending_emails: reconnect attempt failed for user %s", user_id
+                        )
                 else:
                     repository.mark_job_failed(user_id, job["id"])
                     repository.log_activity(user_id, "email_failed", email)
@@ -267,7 +295,17 @@ def send_pending_emails(user_id: str, job_id: Optional[str] = None) -> dict:
                     )
                     break
     finally:
-        smtp.quit()
+        # After a run of transient failures (the exact case the circuit
+        # breaker above exists for), the connection is often already
+        # dead - quit() on a dead socket raises SMTPServerDisconnected
+        # itself, which would otherwise escape uncaught here and mask
+        # an already-successful, already-logged outcome (e.g. "180
+        # sent, stopped after 5 failures") behind a confusing top-level
+        # "job failed: please run connect() first".
+        try:
+            smtp.quit()
+        except Exception:
+            logger.warning("smtp.quit() failed (connection likely already closed) - ignoring.")
 
     logger.info("send_pending_emails done for %s: success=%s failed=%s", user_id, success, failed)
     return {"success": success, "failed": failed, "cancelled": cancelled}
