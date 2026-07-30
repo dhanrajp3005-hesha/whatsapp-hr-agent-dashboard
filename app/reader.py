@@ -19,29 +19,58 @@ def read_messages(page: Page) -> list[str]:
 
     try:
 
-        buttons = page.get_by_text("Read more").all()
+        initial_count = page.get_by_text("Read more").count()
 
         logger.info(
             "Read More buttons found : %s",
-            len(buttons),
+            initial_count,
         )
 
+        expanded = 0
         failed = 0
 
-        for button in buttons:
+        # Re-locate the first remaining "Read more" element fresh on
+        # every iteration rather than clicking through a list collected
+        # up front - expanding one message reflows the page (WhatsApp
+        # Web's virtualized list can even detach/replace nearby message
+        # nodes), so element handles collected before any clicks happen
+        # regularly go stale for everything after the first. That stale-
+        # handle click is exactly what was timing out and leaving
+        # messages un-expanded (confirmed live: 8 of 16 failed to expand
+        # in one scan, each with a hash that won't match this same
+        # message's hash from a scan where it did expand).
+        while True:
+
+            remaining = page.get_by_text("Read more")
+
+            if remaining.count() == 0:
+                break
 
             clicked = False
 
             for attempt in range(2):
                 try:
-                    button.click(timeout=2000)
+                    remaining.first.click(timeout=2000)
                     clicked = True
                     break
                 except Exception:
                     pass
 
-            if not clicked:
+            if clicked:
+                expanded += 1
+                page.wait_for_timeout(200)
+            else:
+                # This specific element won't click even on retry - it'll
+                # still be "first" next loop, so stop rather than spin.
                 failed += 1
+                break
+
+            if expanded + failed > initial_count + 5:
+                # Safety valve - should never trigger, guards against an
+                # infinite loop if some "Read more" element can never be
+                # made to disappear (e.g. click lands but doesn't expand).
+                logger.warning("Read More expansion loop exceeded expected count - stopping.")
+                break
 
         if failed:
             # A message left un-expanded here gets hashed in its
@@ -50,9 +79,9 @@ def read_messages(page: Page) -> list[str]:
             # breaking checkpoint matching for it. Surfacing the count
             # makes that failure mode diagnosable instead of silent.
             logger.warning(
-                "Could not expand %s of %s 'Read more' message(s) - "
+                "Could not expand %s 'Read more' message(s) (%s expanded of %s found) - "
                 "their hash may be unstable across scans.",
-                failed, len(buttons),
+                failed, expanded, initial_count,
             )
 
     except Exception as e:
