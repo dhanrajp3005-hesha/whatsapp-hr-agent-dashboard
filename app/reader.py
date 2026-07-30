@@ -19,7 +19,17 @@ def read_messages(page: Page) -> list[str]:
 
     try:
 
-        initial_count = page.get_by_text("Read more").count()
+        # Scoped to #main (the open conversation pane) - page-wide
+        # get_by_text also matches unrelated "Read more" text in
+        # WhatsApp Web's sidebar chat-list previews. Confirmed live:
+        # one read reported 16 "Read more" matches for a total of only
+        # 5 real messages, which is impossible if each message has at
+        # most one - the extra 11 were never going to disappear no
+        # matter how many times they were "clicked", which is exactly
+        # what was tripping the loop's safety valve below every time.
+        chat_pane = page.locator("#main")
+
+        initial_count = chat_pane.get_by_text("Read more").count()
 
         logger.info(
             "Read More buttons found : %s",
@@ -41,7 +51,7 @@ def read_messages(page: Page) -> list[str]:
         # message's hash from a scan where it did expand).
         while True:
 
-            remaining = page.get_by_text("Read more")
+            remaining = chat_pane.get_by_text("Read more")
 
             if remaining.count() == 0:
                 break
