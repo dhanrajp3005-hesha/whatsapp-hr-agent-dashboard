@@ -99,7 +99,7 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
                 found = last_hash == ""
 
                 for message in messages:
-                    current_hash = calculate_hash(message)
+                    current_hash = calculate_hash(message["key"])
 
                     if found:
                         new_messages.append(message)
@@ -127,7 +127,7 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
                 repository.log_activity(user_id, "scan_completed", "No new messages.")
                 return []
 
-            jobs = extract_jobs(new_messages)
+            jobs = extract_jobs([message["text"] for message in new_messages])
             logger.info("Emails Found : %s", len(jobs))
 
             inserted = repository.insert_jobs(user_id, jobs)
@@ -135,7 +135,7 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
 
             send_pending_emails(user_id)
 
-            repository.save_checkpoint(user_id, calculate_hash(new_messages[-1]))
+            repository.save_checkpoint(user_id, calculate_hash(new_messages[-1]["key"]))
             logger.info("Checkpoint saved for user %s.", user_id)
 
             repository.log_activity(

@@ -4,9 +4,11 @@ from app.logger import logger
 from app.config import DEBUG
 
 
-def read_messages(page: Page) -> list[str]:
+def read_messages(page: Page) -> list[dict]:
     """
-    Read all visible WhatsApp messages.
+    Read all visible WhatsApp messages. Each returned item is
+    {"text": <full visible body>, "key": <stable per-message identity
+    used for checkpointing - see the comment below>}.
     """
 
     logger.info("=" * 80)
@@ -127,7 +129,21 @@ def read_messages(page: Page) -> list[str]:
             if not text:
                 continue
 
-            messages.append(text)
+            # data-pre-plain-text is WhatsApp's own "[H:MM am/pm,
+            # DD/MM/YYYY] Sender: " metadata string, written into the DOM
+            # by WhatsApp itself regardless of whether the message body
+            # is truncated or expanded ("Read more"). Unlike the visible
+            # body text, it can't change between two reads of the same
+            # message, so checkpoint identity is based on it (plus a
+            # truncation-safe prefix of the body, which is always
+            # rendered even before expansion) instead of the full body -
+            # which is exactly what kept breaking checkpoint matching:
+            # a truncated vs. expanded read of the same message hashes
+            # completely differently under the old text-only approach.
+            metadata = element.get_attribute("data-pre-plain-text") or ""
+            checkpoint_key = metadata + text[:120]
+
+            messages.append({"text": text, "key": checkpoint_key})
 
         except Exception:
             continue
@@ -152,7 +168,7 @@ def read_messages(page: Page) -> list[str]:
             logger.info("")
             logger.info("MESSAGE %s", index)
             logger.info("-" * 60)
-            logger.info(message)
+            logger.info(message["text"])
             logger.info("-" * 60)
 
     logger.info("=" * 80)

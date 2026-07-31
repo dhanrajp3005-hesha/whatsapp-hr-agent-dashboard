@@ -15,12 +15,14 @@ from app.state import calculate_hash
 
 
 def checkpoint_found(
-    messages: list[str],
+    messages: list[dict],
     last_hash: str,
 ) -> bool:
     """
-    Check whether checkpoint message exists
-    inside the current message list.
+    Check whether checkpoint message exists inside the current message
+    list. Matched on each message's stable `key` (WhatsApp's own
+    per-message metadata, not the visible body text) - see reader.py's
+    read_messages for why the body can't be trusted for identity.
     """
 
     if not last_hash:
@@ -28,32 +30,33 @@ def checkpoint_found(
 
     for message in messages:
 
-        if calculate_hash(message) == last_hash:
+        if calculate_hash(message["key"]) == last_hash:
             return True
 
     return False
 
 
 def merge_messages(
-    existing: list[str],
-    current: list[str],
-) -> list[str]:
+    existing: list[dict],
+    current: list[dict],
+) -> list[dict]:
     """
     Merge messages while preserving chronological order and removing
-    duplicates. Scrolling always reveals OLDER messages above what's
-    already known, so anything in `current` not already in `existing`
-    must be older than everything in `existing` - it belongs before
-    it, not after. Appending instead (the original approach) scrambled
-    order across multiple scroll rounds: scanner.py's new-message
-    extraction walks this list assuming oldest-first, so genuinely new
-    messages could end up positioned before an old checkpoint match
-    and get silently excluded.
+    duplicates (by `key`, not full equality - see reader.py). Scrolling
+    always reveals OLDER messages above what's already known, so
+    anything in `current` not already in `existing` must be older than
+    everything in `existing` - it belongs before it, not after.
+    Appending instead (the original approach) scrambled order across
+    multiple scroll rounds: scanner.py's new-message extraction walks
+    this list assuming oldest-first, so genuinely new messages could
+    end up positioned before an old checkpoint match and get silently
+    excluded.
     """
 
-    existing_set = set(existing)
+    existing_keys = {message["key"] for message in existing}
 
     new_from_current = [
-        message for message in current if message not in existing_set
+        message for message in current if message["key"] not in existing_keys
     ]
 
     return new_from_current + existing
@@ -63,7 +66,7 @@ import time
 def collect_messages(
     page: Page,
     last_hash: str,
-) -> tuple[list[str], bool]:
+) -> tuple[list[dict], bool]:
     """
     Read all WhatsApp messages by automatically scrolling until the
     previous checkpoint is found or the maximum scroll limit is
