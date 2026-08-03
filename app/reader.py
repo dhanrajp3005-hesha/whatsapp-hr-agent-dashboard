@@ -313,4 +313,72 @@ def scroll_to_bottom(page: Page) -> bool:
         )
         page.wait_for_timeout(1000)
 
+
+def wait_for_sync_to_settle(page, max_wait_seconds: int = 20, check_interval_seconds: int = 2) -> bool:
+    """
+    Waits until the message pane's (message count, scrollHeight) stops
+    changing between two checks before letting the scan start reading.
+
+    Every scan launches a brand-new browser page - the login session is
+    persisted, but WhatsApp Web still has to re-establish its socket
+    and re-sync the community's recent history from scratch each time.
+    The fixed ~4s wait after opening a chat only confirms the UI is
+    *interactive*, not that this specific community has finished
+    syncing. Confirmed live: the exact same (scrollTop, scrollHeight)
+    pair recurred byte-for-byte across scans spanning 5 separate days -
+    far more consistent with "reading a not-yet-synced snapshot every
+    time" than coincidence. This polls a cheap signature (no clicking,
+    unlike read_messages) until it's stable, giving real sync time to
+    catch up before anything is read for real.
+    """
+
+    script = """
+    () => {
+        const main = document.querySelector("#main");
+        if (!main) return null;
+
+        const count = main.querySelectorAll("div.copyable-text[data-pre-plain-text]").length;
+
+        let scrollHeight = null;
+        for (const el of main.querySelectorAll("*")) {
+            if (el.scrollHeight > el.clientHeight + 100) {
+                const style = getComputedStyle(el);
+                if (style.overflowY === "auto" || style.overflowY === "scroll") {
+                    scrollHeight = el.scrollHeight;
+                    break;
+                }
+            }
+        }
+
+        return [count, scrollHeight];
+    }
+    """
+
+    previous = None
+    elapsed = 0
+
+    while elapsed <= max_wait_seconds:
+        try:
+            current = page.evaluate(script)
+        except Exception as e:
+            logger.warning("wait_for_sync_to_settle: signature check errored : %s", e)
+            current = None
+
+        if current is not None and current == previous:
+            logger.info(
+                "wait_for_sync_to_settle: stable after %ss (count=%s, scrollHeight=%s)",
+                elapsed, current[0], current[1],
+            )
+            return True
+
+        previous = current
+        page.wait_for_timeout(check_interval_seconds * 1000)
+        elapsed += check_interval_seconds
+
+    logger.warning(
+        "wait_for_sync_to_settle: still changing after %ss - proceeding anyway "
+        "(last signature: %s)", max_wait_seconds, previous,
+    )
+    return False
+
     return False

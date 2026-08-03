@@ -6,7 +6,7 @@ from app import repository
 from app.validator import validate
 from app.waiter import wait_for_whatsapp
 from app.search import open_community
-from app.reader import scroll_to_bottom
+from app.reader import scroll_to_bottom, wait_for_sync_to_settle
 from app.scroll_controller import collect_messages
 from app.parser import extract_jobs
 from app.mailer import send_pending_emails
@@ -62,6 +62,16 @@ def scan_whatsapp(user_id: str, community_name: str, browser_data_dir: Path) -> 
             page.wait_for_timeout(4000)
 
             reached_bottom = scroll_to_bottom(page)
+
+            # Every scan is a brand-new browser page - login is
+            # persisted, but WhatsApp Web still has to re-establish its
+            # socket and re-sync this community's recent history from
+            # scratch each time. Confirmed live: the exact same message
+            # pane state recurred byte-for-byte across scans spanning
+            # 5 separate days, which pointed at reading a not-yet-synced
+            # snapshot rather than a scanning-logic bug. Give real sync
+            # a chance to catch up before anything is read for real.
+            wait_for_sync_to_settle(page)
 
             checkpoint = repository.get_checkpoint(user_id)
             last_hash = (checkpoint or {}).get("last_message_hash") or ""
