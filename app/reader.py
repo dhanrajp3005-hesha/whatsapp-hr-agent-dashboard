@@ -251,24 +251,36 @@ def scroll_up(page: Page) -> bool:
         return False
 
 
-def scroll_to_bottom(page: Page) -> bool:
+def scroll_to_bottom(page: Page, max_jumps: int = 80) -> bool:
     """
-    Jumps the open chat's message pane to the newest message before the
-    checkpoint search begins. WhatsApp Web doesn't reliably open a chat
-    scrolled to the bottom - a community/group with many unread
-    messages is frequently opened scrolled to the *first* unread
-    message instead, with genuinely newer messages still further down.
-    Since collect_messages only ever scrolls up (toward older history),
-    a checkpoint match found in that first, partial read would be
+    Jumps the open chat's message pane all the way down to the newest
+    message before the checkpoint search begins. WhatsApp Web doesn't
+    reliably open a chat scrolled to the bottom - a community/group
+    with many unread messages is frequently opened scrolled to the
+    *first* unread message instead, with genuinely newer messages still
+    further down. Since collect_messages only ever scrolls up (toward
+    older history), a checkpoint match found in a partial read would be
     misread as "caught up" while unread messages below it - the ones
-    that actually matter - are silently never collected. Confirmed live:
-    a scan reported 0 new messages despite messages having arrived
-    hours earlier, and the very next scan (checkpoint no longer
-    reachable at all) picked up dozens of them at once.
+    that actually matter - are silently never collected.
+
+    A single scrollTop-to-scrollHeight jump is nowhere near enough:
+    WhatsApp Web's virtualized list only pages in the *next* slice of
+    newer messages once the pane actually reaches its current bottom
+    edge, so reaching the true newest message can take dozens of
+    repeated jumps when there's a real unread backlog. Confirmed live:
+    repeated jumps against the same open community grew scrollHeight
+    from 9470 all the way past 50000 over just 12 jumps without ever
+    plateauing. Stopping after two jumps (the previous behaviour)
+    landed on 9470 every single time regardless of how much unread
+    content remained further down - exactly the stuck value that kept
+    recurring across this bug's entire history. This mirrors scroll_up's
+    own escalating-wait retry (1.5s/3s/5s) before concluding growth has
+    truly stopped, since a lazy-load pause looks identical to genuinely
+    reaching the end.
     """
 
     script = """
-    async () => {
+    () => {
         const main = document.querySelector("#main");
         if (!main) return { ok: false, reason: "main not found" };
 
@@ -286,32 +298,70 @@ def scroll_to_bottom(page: Page) -> bool:
         if (!target) return { ok: false, reason: "no scrollable pane found" };
 
         target.scrollTop = target.scrollHeight;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        target.scrollTop = target.scrollHeight;
 
         return { ok: true, scrollTop: target.scrollTop, scrollHeight: target.scrollHeight };
     }
     """
 
+    def jump():
+        try:
+            return page.evaluate(script)
+        except Exception as e:
+            return {"ok": False, "reason": str(e)}
+
     # The message pane sometimes isn't mounted yet the instant the chat
     # opens - retry a couple of times rather than treating one failed
     # detection as "pane doesn't exist" and falling back to a full,
     # unnecessary history re-scroll.
+    result = None
     for attempt in range(3):
-        try:
-            result = page.evaluate(script)
-        except Exception as e:
-            logger.warning("scroll_to_bottom attempt %s errored : %s", attempt + 1, e)
-            result = {"ok": False, "reason": str(e)}
+        result = jump()
 
         if result.get("ok"):
-            logger.info("scroll_to_bottom result : %s", result)
-            return True
+            break
 
         logger.warning(
             "scroll_to_bottom attempt %s/3 failed : %s", attempt + 1, result.get("reason")
         )
         page.wait_for_timeout(1000)
+
+    if not result or not result.get("ok"):
+        return False
+
+    previous_height = result["scrollHeight"]
+
+    for jump_count in range(1, max_jumps + 1):
+        grew = False
+
+        for wait_ms in (1500, 3000, 5000):
+            page.wait_for_timeout(wait_ms)
+            result = jump()
+
+            if not result.get("ok"):
+                logger.info(
+                    "scroll_to_bottom result : %s (jump %s, pane gone)", result, jump_count
+                )
+                return True
+
+            if result["scrollHeight"] > previous_height:
+                grew = True
+                break
+
+        if not grew:
+            logger.info(
+                "scroll_to_bottom result : %s (reached true bottom after %s jump(s))",
+                result, jump_count,
+            )
+            return True
+
+        previous_height = result["scrollHeight"]
+
+    logger.warning(
+        "scroll_to_bottom : hit max_jumps (%s) without the pane ever stabilizing "
+        "(scrollHeight=%s) - proceeding with what's loaded so far. Very large "
+        "unread backlog?", max_jumps, previous_height,
+    )
+    return True
 
 
 def wait_for_sync_to_settle(page, max_wait_seconds: int = 20, check_interval_seconds: int = 2) -> bool:
